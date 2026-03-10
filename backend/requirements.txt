@@ -5,7 +5,7 @@ python-dotenv
 sqlalchemy[asyncio]
 asyncpg
 aiosqlite
-passlib[bcrypt]
+bcrypt
 python-jose[cryptography]
 python-multipart
 email-validator
