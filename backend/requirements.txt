@@ -2,3 +2,10 @@ fastapi
 uvicorn[standard]
 openai
 python-dotenv
+sqlalchemy[asyncio]
+asyncpg
+aiosqlite
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart
+email-validator

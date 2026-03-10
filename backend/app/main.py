@@ -1,27 +1,36 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
 from pathlib import Path
 
-from app.openai_module import chat_completion
+from app.database import init_db
+from app.routers.auth_router import router as auth_router
+from app.routers.recipes_router import router as recipes_router
 
 # ─── Environment ──────────────────────────────────────────────────────────────
 
-basedir     = os.path.abspath(os.path.dirname(__file__))
+basedir = os.path.abspath(os.path.dirname(__file__))
 backend_dir = os.path.dirname(basedir)
-dotenv_path = os.path.join(backend_dir, ".env")
-load_dotenv(dotenv_path)
+load_dotenv(os.path.join(backend_dir, ".env"))
 
-print(f"Loading .env from: {dotenv_path}")
 print(f"OPENAI_API_KEY found: {bool(os.getenv('OPENAI_API_KEY'))}")
+print(f"DATABASE_URL found:   {bool(os.getenv('DATABASE_URL'))}")
+print(f"SECRET_KEY found:     {bool(os.getenv('SECRET_KEY'))}")
+
+# ─── Lifespan ─────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
 
 # ─── App setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,29 +40,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Request models ───────────────────────────────────────────────────────────
+# ─── API routers ──────────────────────────────────────────────────────────────
 
-class Message(BaseModel):
-    role: str
-    content: str
-
-class ChatRequest(BaseModel):
-    messages: list[Message]
-    model: str = "gpt-4o-mini"
-    temperature: float = 0.7
-
-# ─── API endpoints ────────────────────────────────────────────────────────────
+app.include_router(auth_router)
+app.include_router(recipes_router)
 
 @app.get("/api/health")
 def health():
     return {"ok": True}
 
-@app.post("/api/chat")
-def chat(req: ChatRequest):
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    return chat_completion(messages, model=req.model, temperature=req.temperature)
-
-# ─── Frontend (SPA) ───────────────────────────────────────────────────────────
+# ─── Frontend (SPA) — must be last ────────────────────────────────────────────
 
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():

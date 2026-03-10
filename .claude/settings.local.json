@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/Users/user/source/repos/Seasoning\" && gh repo create seasoning --public --source=. --remote=origin --push 2>&1)",
+      "Bash(where git:*)",
+      "Bash(git config:*)"
+    ]
+  }
+}
