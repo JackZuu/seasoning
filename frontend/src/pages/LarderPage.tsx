@@ -51,7 +51,19 @@ export default function LarderPage() {
   async function handleSaveSuggestion(suggestion: LarderRecipeSuggestion) {
     setSaving(suggestion.title);
     try {
-      const text = `${suggestion.title}\n\nIngredients:\n${[...suggestion.key_ingredients, ...suggestion.missing_ingredients].join("\n")}\n\nDescription: ${suggestion.description}`;
+      const allIngredients = [...suggestion.key_ingredients, ...suggestion.missing_ingredients];
+      const text = [
+        `Recipe: ${suggestion.title}`,
+        ``,
+        suggestion.description,
+        ``,
+        `Serves: 4`,
+        ``,
+        `Ingredients:`,
+        ...allIngredients.map(i => `- ${i}`),
+        ``,
+        `Please generate the full recipe with precise quantities for each ingredient and detailed step-by-step cooking instructions.`,
+      ].join("\n");
       const recipe = await parseRecipe(text);
       navigate(`/recipes/${recipe.id}`);
     } catch (e: any) {
