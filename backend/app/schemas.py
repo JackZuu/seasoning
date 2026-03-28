@@ -73,6 +73,11 @@ class RecipeParseRequest(BaseModel):
 class RecipeURLParseRequest(BaseModel):
     url: str
 
+class RecipeGenerateRequest(BaseModel):
+    title: str
+    description: str
+    ingredients: list[str]
+
 class RecipeCreate(BaseModel):
     title: str
     servings: Optional[int] = None

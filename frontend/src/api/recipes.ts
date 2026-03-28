@@ -84,6 +84,16 @@ export async function parseRecipe(rawText: string): Promise<Recipe> {
   return data;
 }
 
+export async function generateRecipe(title: string, description: string, ingredients: string[]): Promise<Recipe> {
+  const res = await apiFetch("/api/recipes/generate", {
+    method: "POST",
+    body: JSON.stringify({ title, description, ingredients }),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Failed to generate recipe");
+  return data;
+}
+
 export async function parseRecipeFromImage(files: File[]): Promise<Recipe> {
   const formData = new FormData();
   files.forEach(f => formData.append("images", f));

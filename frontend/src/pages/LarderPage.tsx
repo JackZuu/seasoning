@@ -4,7 +4,7 @@ import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { colors } from "../theme";
 import { listLarder, addLarderItem, removeLarderItem, generateRecipesFromLarder, LarderItem, LarderRecipeSuggestion } from "../api/larder";
-import { parseRecipe } from "../api/recipes";
+import { generateRecipe } from "../api/recipes";
 
 const CATEGORIES = ["Fruit & Veg", "Meat & Fish", "Dairy", "Bakery", "Tinned & Dried", "Herbs & Spices", "Sauces & Condiments", "Frozen", "Other"];
 
@@ -52,24 +52,7 @@ export default function LarderPage() {
     setSaving(suggestion.title);
     try {
       const allIngredients = [...suggestion.key_ingredients, ...suggestion.missing_ingredients];
-      // Format as a complete recipe so the parser accepts it
-      const text = [
-        suggestion.title,
-        `Serves 4`,
-        ``,
-        `${suggestion.description}`,
-        ``,
-        `Ingredients:`,
-        ...allIngredients.map((item, i) => `- ${item}`),
-        ``,
-        `Method:`,
-        `1. Prepare all ingredients as needed.`,
-        `2. Cook following standard technique for ${suggestion.title.toLowerCase()}.`,
-        `3. Season to taste and serve.`,
-        ``,
-        `Note: Please fill in precise quantities for each ingredient and expand the method into detailed step-by-step instructions.`,
-      ].join("\n");
-      const recipe = await parseRecipe(text);
+      const recipe = await generateRecipe(suggestion.title, suggestion.description, allIngredients);
       navigate(`/recipes/${recipe.id}`);
     } catch (e: any) {
       alert("Failed to save: " + e.message);

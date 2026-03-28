@@ -11,7 +11,7 @@ from app.models import Recipe
 from app.schemas import (
     RecipeParseRequest, RecipeCreate, RecipeResponse, RecipeListItem,
     ConvertRequest, ConvertResponse, Ingredient, InstructionStep,
-    RecipeURLParseRequest, RecipeUpdateNotes,
+    RecipeURLParseRequest, RecipeGenerateRequest, RecipeUpdateNotes,
     TransformRequest, TransformResponse,
     SubstitutionRequest, SubstitutionResponse,
     NutritionResponse, NutritionPerServing,
@@ -24,6 +24,7 @@ from app.prompts import (
     RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT,
     RECIPE_TRANSFORM_SYSTEM_PROMPT, INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT,
     NUTRITION_SYSTEM_PROMPT, COST_ESTIMATE_SYSTEM_PROMPT,
+    RECIPE_GENERATE_SYSTEM_PROMPT,
 )
 from app.conversions import convert_ingredients
 from app.scraper import scrape_recipe_url
@@ -216,6 +217,41 @@ async def parse_url_and_save(
         raise HTTPException(status_code=422, detail=detail)
 
     recipe = await _save_recipe(data, current_user.id, db, image_url=image_url)
+    return _orm_to_response(recipe)
+
+
+@router.post("/generate", response_model=RecipeResponse, status_code=201)
+async def generate_and_save(
+    req: RecipeGenerateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a full recipe from a title, description, and ingredient list."""
+    user_msg = (
+        f"Title: {req.title}\n"
+        f"Description: {req.description}\n"
+        f"Ingredients: {', '.join(req.ingredients)}"
+    )
+
+    def _do_generate():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": RECIPE_GENERATE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.5,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_generate)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    recipe = await _save_recipe(data, current_user.id, db)
     return _orm_to_response(recipe)
 
 
