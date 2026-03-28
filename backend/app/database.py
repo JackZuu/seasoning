@@ -36,8 +36,14 @@ def _add_column_if_missing(conn, table_name: str, column_name: str, column_type:
 
 def _run_migrations(conn):
     """Add any new columns that don't exist yet."""
+    # Recipe columns
     _add_column_if_missing(conn, "recipes", "image_url", "TEXT")
     _add_column_if_missing(conn, "recipes", "notes", "TEXT DEFAULT ''")
+    # User profile columns
+    _add_column_if_missing(conn, "users", "display_name", "VARCHAR")
+    _add_column_if_missing(conn, "users", "recipe_book_name", "VARCHAR DEFAULT 'Your Recipe Book'")
+    _add_column_if_missing(conn, "users", "currency", "VARCHAR DEFAULT 'GBP'")
+    _add_column_if_missing(conn, "users", "preferences", "TEXT")
 
 
 async def init_db():

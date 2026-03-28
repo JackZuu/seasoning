@@ -15,14 +15,15 @@ from app.schemas import (
     TransformRequest, TransformResponse,
     SubstitutionRequest, SubstitutionResponse,
     NutritionResponse, NutritionPerServing,
+    CostResponse,
 )
 from app.auth import get_current_user
-from app.models import User
+from app.models import User, Friendship
 from app.openai_module import chat_completion, vision_completion
 from app.prompts import (
     RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT,
     RECIPE_TRANSFORM_SYSTEM_PROMPT, INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT,
-    NUTRITION_SYSTEM_PROMPT,
+    NUTRITION_SYSTEM_PROMPT, COST_ESTIMATE_SYSTEM_PROMPT,
 )
 from app.conversions import convert_ingredients
 from app.scraper import scrape_recipe_url
@@ -446,3 +447,88 @@ async def get_nutrition(
         servings=data.get("servings", recipe.servings or 1),
         per_serving=NutritionPerServing(**per_serving),
     )
+
+
+# ─── Cost Estimate ────────────────────────────────────────────────────────────
+
+@router.post("/{recipe_id}/cost", response_model=CostResponse)
+async def estimate_cost(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    currency = current_user.currency or "GBP"
+    recipe_text = _recipe_to_text(recipe)
+
+    def _do_cost():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": COST_ESTIMATE_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Currency: {currency}\n\n{recipe_text}"},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.2,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_cost)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return CostResponse(
+        total=data.get("total", 0),
+        per_serving=data.get("per_serving", 0),
+        currency=data.get("currency", currency),
+        breakdown=data.get("breakdown", []),
+    )
+
+
+# ─── Copy Friend's Recipe ────────────────────────────────────────────────────
+
+@router.post("/{recipe_id}/copy", response_model=RecipeResponse, status_code=201)
+async def copy_recipe(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy a friend's recipe to your own collection."""
+    from sqlalchemy import or_, and_
+
+    original = await db.get(Recipe, recipe_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if original.user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="This is already your recipe")
+
+    # Verify friendship
+    result = await db.execute(
+        select(Friendship).where(
+            Friendship.status == "accepted",
+            or_(
+                and_(Friendship.user_id == current_user.id, Friendship.friend_id == original.user_id),
+                and_(Friendship.user_id == original.user_id, Friendship.friend_id == current_user.id),
+            )
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not friends with recipe owner")
+
+    copy = Recipe(
+        user_id=current_user.id,
+        title=original.title,
+        servings=original.servings,
+        ingredients=original.ingredients,
+        instructions=original.instructions,
+        image_url=original.image_url if original.image_url and original.image_url.startswith("http") else None,
+    )
+    db.add(copy)
+    await db.commit()
+    await db.refresh(copy)
+    return _orm_to_response(copy)

@@ -6,9 +6,11 @@ import SaltShakerLogo from "../components/SaltShakerLogo";
 import { colors } from "../theme";
 import {
   getRecipe, convertRecipe, updateNotes, uploadRecipeImage,
-  transformRecipe, substituteIngredient, getNutrition,
-  Recipe, Ingredient, TransformResponse, SubstitutionResponse, NutritionResponse,
+  transformRecipe, substituteIngredient, getNutrition, estimateCost,
+  Recipe, Ingredient, TransformResponse, SubstitutionResponse, NutritionResponse, CostResponse,
 } from "../api/recipes";
+import { addRecipeToBasket } from "../api/basket";
+import { useAuth } from "../context/AuthContext";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -29,12 +31,13 @@ function formatQuantity(q: number | null): string {
 }
 
 const TRANSFORMATIONS = [
-  { key: "veggie", label: "Make Veggie" },
-  { key: "vegan", label: "Make Vegan" },
-  { key: "seasonal", label: "Make Seasonal" },
-  { key: "eco", label: "Reduce Impact" },
-  { key: "cheaper", label: "Make Cheaper" },
-  { key: "luxurious", label: "Make Luxurious" },
+  { key: "personalise", label: "Personalise", tooltip: "Based on your preferences" },
+  { key: "veggie", label: "Make Veggie", tooltip: "" },
+  { key: "vegan", label: "Make Vegan", tooltip: "" },
+  { key: "seasonal", label: "Make Seasonal", tooltip: "" },
+  { key: "eco", label: "Reduce Impact", tooltip: "" },
+  { key: "cheaper", label: "Make Cheaper", tooltip: "" },
+  { key: "luxurious", label: "Make Luxurious", tooltip: "" },
 ] as const;
 
 const DIETARY_OPTIONS = [
@@ -104,6 +107,7 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
 export default function RecipeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -144,6 +148,14 @@ export default function RecipeDetailPage() {
 
   // Image
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Cost
+  const [cost, setCost] = useState<CostResponse | null>(null);
+  const [costLoading, setCostLoading] = useState(false);
+  const [showCost, setShowCost] = useState(false);
+
+  // Basket
+  const [addedToBasket, setAddedToBasket] = useState(false);
 
   // ─── Load recipe ─────────────────────────────────────────────────────────
 
@@ -189,16 +201,29 @@ export default function RecipeDetailPage() {
   async function handleTransform(type: string) {
     if (!recipe) return;
     if (activeTransform === type) {
-      // Toggle off — show original
-      setActiveTransform(null);
-      setTransformData(null);
-      setDisplayIngredients(recipe.ingredients);
+      showOriginal();
       return;
     }
     setTransforming(true);
     setActiveTransform(type);
     try {
-      const data = await transformRecipe(recipe.id, type, dietaryReqs);
+      let transformType = type;
+      let reqs = [...dietaryReqs];
+
+      // "Personalise" uses the user's saved preferences
+      if (type === "personalise" && user?.preferences) {
+        const prefs = user.preferences;
+        transformType = prefs.diet || prefs.budget || "seasonal";
+        if (prefs.dietary_requirements) reqs = [...reqs, ...prefs.dietary_requirements];
+        if (prefs.seasonal) transformType = "seasonal";
+        if (prefs.eco) transformType = "eco";
+        if (prefs.diet === "veggie") transformType = "veggie";
+        if (prefs.diet === "vegan") transformType = "vegan";
+        if (prefs.budget === "cheap") transformType = "cheaper";
+        if (prefs.budget === "luxurious") transformType = "luxurious";
+      }
+
+      const data = await transformRecipe(recipe.id, transformType, reqs);
       setTransformData(data);
       setDisplayIngredients(data.ingredients);
     } catch (e: any) {
@@ -284,6 +309,37 @@ export default function RecipeDetailPage() {
       alert("Image upload failed: " + e.message);
     } finally {
       setUploadingImage(false);
+    }
+  }
+
+  // ─── Cost ──────────────────────────────────────────────────────────────
+
+  async function handleShowCost() {
+    if (!recipe) return;
+    if (cost) { setShowCost(!showCost); return; }
+    setCostLoading(true);
+    setShowCost(true);
+    try {
+      const data = await estimateCost(recipe.id);
+      setCost(data);
+    } catch (e: any) {
+      alert("Could not estimate cost: " + e.message);
+      setShowCost(false);
+    } finally {
+      setCostLoading(false);
+    }
+  }
+
+  // ─── Basket ────────────────────────────────────────────────────────────
+
+  async function handleAddToBasket() {
+    if (!recipe) return;
+    try {
+      await addRecipeToBasket(recipe.id, ingredientsToShow);
+      setAddedToBasket(true);
+      setTimeout(() => setAddedToBasket(false), 3000);
+    } catch (e: any) {
+      alert("Failed to add to basket: " + e.message);
     }
   }
 
@@ -413,6 +469,7 @@ export default function RecipeDetailPage() {
                   key={t.key}
                   onClick={() => handleTransform(t.key)}
                   disabled={transforming}
+                  title={t.tooltip || ""}
                   style={{
                     padding: "6px 14px", borderRadius: 20, fontSize: 13,
                     fontFamily: "system-ui, sans-serif", cursor: "pointer",
@@ -595,6 +652,60 @@ export default function RecipeDetailPage() {
                         ))}
                       </div>
                     </>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {/* Add to basket */}
+            <button
+              onClick={handleAddToBasket}
+              style={{
+                background: addedToBasket ? colors.greenLight : colors.white,
+                border: `1px solid ${addedToBasket ? colors.green : colors.border}`,
+                borderRadius: 10, padding: "12px 20px", fontSize: 14, fontWeight: 600,
+                color: addedToBasket ? colors.green : colors.text, cursor: "pointer",
+                fontFamily: "system-ui, sans-serif", width: "100%",
+                transition: "all 0.2s",
+              }}
+            >
+              {addedToBasket ? "Added to basket ✓" : "Add ingredients to basket"}
+            </button>
+
+            {/* Cost estimate */}
+            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
+              <button
+                onClick={handleShowCost}
+                style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "Georgia, serif", color: colors.text, fontSize: 18,
+                  display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
+                }}
+              >
+                Cost Estimate
+                <span style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif" }}>
+                  {showCost ? "▲" : "▼"}
+                </span>
+              </button>
+              {showCost && (
+                <div style={{ marginTop: 16 }}>
+                  {costLoading ? <LoadingSpinner label="Estimating cost..." /> : cost ? (
+                    <div style={{ fontFamily: "system-ui, sans-serif" }}>
+                      <div style={{ display: "flex", gap: 24, marginBottom: 16 }}>
+                        <div style={{ textAlign: "center", padding: "12px 20px", background: colors.cream, borderRadius: 8, flex: 1 }}>
+                          <div style={{ fontSize: 24, fontWeight: 600, color: colors.green }}>
+                            {cost.currency === "GBP" ? "£" : cost.currency === "USD" ? "$" : "€"}{cost.per_serving.toFixed(2)}
+                          </div>
+                          <div style={{ fontSize: 12, color: colors.muted }}>per serving</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "12px 20px", background: colors.cream, borderRadius: 8, flex: 1 }}>
+                          <div style={{ fontSize: 24, fontWeight: 600, color: colors.text }}>
+                            {cost.currency === "GBP" ? "£" : cost.currency === "USD" ? "$" : "€"}{cost.total.toFixed(2)}
+                          </div>
+                          <div style={{ fontSize: 12, color: colors.muted }}>total</div>
+                        </div>
+                      </div>
+                    </div>
                   ) : null}
                 </div>
               )}

@@ -65,6 +65,13 @@ export interface NutritionResponse {
   per_serving: NutritionPerServing;
 }
 
+export interface CostResponse {
+  total: number;
+  per_serving: number;
+  currency: string;
+  breakdown: { item: string; estimated_cost: number }[];
+}
+
 // ─── Parse ───────────────────────────────────────────────────────────────────
 
 export async function parseRecipe(rawText: string): Promise<Recipe> {
@@ -203,5 +210,14 @@ export async function getNutrition(id: number): Promise<NutritionResponse> {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Could not get nutrition info");
+  return data;
+}
+
+export async function estimateCost(id: number): Promise<CostResponse> {
+  const res = await apiFetch(`/api/recipes/${id}/cost`, {
+    method: "POST",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Could not estimate cost");
   return data;
 }

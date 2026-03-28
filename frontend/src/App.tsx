@@ -7,6 +7,10 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import DashboardPage from "./pages/DashboardPage";
 import ParsePage from "./pages/ParsePage";
 import RecipeDetailPage from "./pages/RecipeDetailPage";
+import LarderPage from "./pages/LarderPage";
+import FriendsPage from "./pages/FriendsPage";
+import BasketPage from "./pages/BasketPage";
+import PreferencesPage from "./pages/PreferencesPage";
 
 export default function App() {
   return (
@@ -20,6 +24,10 @@ export default function App() {
         <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
         <Route path="/recipes/new" element={<PrivateRoute><ParsePage /></PrivateRoute>} />
         <Route path="/recipes/:id" element={<PrivateRoute><RecipeDetailPage /></PrivateRoute>} />
+        <Route path="/larder" element={<PrivateRoute><LarderPage /></PrivateRoute>} />
+        <Route path="/friends" element={<PrivateRoute><FriendsPage /></PrivateRoute>} />
+        <Route path="/basket" element={<PrivateRoute><BasketPage /></PrivateRoute>} />
+        <Route path="/preferences" element={<PrivateRoute><PreferencesPage /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </>

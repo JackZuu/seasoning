@@ -11,6 +11,9 @@ from pathlib import Path
 from app.database import init_db
 from app.routers.auth_router import router as auth_router
 from app.routers.recipes_router import router as recipes_router
+from app.routers.larder_router import router as larder_router
+from app.routers.friends_router import router as friends_router
+from app.routers.shopping_router import router as shopping_router
 
 # ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -63,6 +66,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router)
 app.include_router(recipes_router)
+app.include_router(larder_router)
+app.include_router(friends_router)
+app.include_router(shopping_router)
 
 @app.get("/api/health")
 def health():

@@ -1,12 +1,20 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 
-interface User { id: number; email: string; }
+export interface User {
+  id: number;
+  email: string;
+  display_name?: string | null;
+  recipe_book_name?: string | null;
+  currency?: string | null;
+  preferences?: Record<string, any> | null;
+}
 
 interface AuthCtx {
   token: string | null;
   user: User | null;
   login: (token: string, user: User) => void;
   logout: () => void;
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthCtx | null>(null);
@@ -32,8 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
+  function updateUser(u: User) {
+    localStorage.setItem("user", JSON.stringify(u));
+    setUser(u);
+  }
+
   return (
-    <AuthContext.Provider value={{ token, user, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

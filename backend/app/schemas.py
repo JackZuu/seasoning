@@ -17,6 +17,10 @@ class LoginRequest(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: str
+    display_name: Optional[str] = None
+    recipe_book_name: Optional[str] = "Your Recipe Book"
+    currency: Optional[str] = "GBP"
+    preferences: Optional[dict] = None
 
 class AuthResponse(BaseModel):
     access_token: str
@@ -36,6 +40,12 @@ class ResetPasswordRequest(BaseModel):
 
 class ResetPasswordResponse(BaseModel):
     message: str
+
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = None
+    recipe_book_name: Optional[str] = None
+    currency: Optional[str] = None
+    preferences: Optional[dict] = None
 
 
 # ─── Recipe sub-models ────────────────────────────────────────────────────────
@@ -110,7 +120,7 @@ class RecipeUpdateNotes(BaseModel):
 # ─── AI Transformations ──────────────────────────────────────────────────────
 
 class TransformRequest(BaseModel):
-    transformation: Literal["veggie", "vegan", "seasonal", "eco", "cheaper", "luxurious"]
+    transformation: Literal["veggie", "vegan", "seasonal", "eco", "cheaper", "luxurious", "personalise"]
     dietary_requirements: list[str] = []
 
 class TransformResponse(BaseModel):
@@ -144,3 +154,70 @@ class NutritionPerServing(BaseModel):
 class NutritionResponse(BaseModel):
     servings: int
     per_serving: NutritionPerServing
+
+
+# ─── Cost ─────────────────────────────────────────────────────────────────────
+
+class CostResponse(BaseModel):
+    total: float
+    per_serving: float
+    currency: str
+    breakdown: list[dict]
+
+
+# ─── Larder ───────────────────────────────────────────────────────────────────
+
+class LarderItemCreate(BaseModel):
+    item: str
+    category: str = "Other"
+
+class LarderItemOut(BaseModel):
+    id: int
+    item: str
+    category: str
+
+class LarderRecipeSuggestion(BaseModel):
+    title: str
+    description: str
+    key_ingredients: list[str]
+    missing_ingredients: list[str]
+
+class LarderRecipeSuggestionsResponse(BaseModel):
+    suggestions: list[LarderRecipeSuggestion]
+
+
+# ─── Friends ──────────────────────────────────────────────────────────────────
+
+class FriendSearchResult(BaseModel):
+    id: int
+    display_name: str
+
+class FriendshipOut(BaseModel):
+    id: int
+    user: FriendSearchResult
+    status: str
+
+class InviteOut(BaseModel):
+    id: int
+    from_user: FriendSearchResult
+    created_at: datetime
+
+
+# ─── Shopping List (Basket) ───────────────────────────────────────────────────
+
+class ShoppingListItemCreate(BaseModel):
+    item: str
+    category: str = "Other"
+    quantity: Optional[str] = None
+
+class ShoppingListItemOut(BaseModel):
+    id: int
+    item: str
+    category: str
+    quantity: Optional[str] = None
+    checked: bool
+    recipe_id: Optional[int] = None
+
+class AddRecipeToBasketRequest(BaseModel):
+    recipe_id: int
+    ingredients: list[Ingredient]
