@@ -207,23 +207,7 @@ export default function RecipeDetailPage() {
     setTransforming(true);
     setActiveTransform(type);
     try {
-      let transformType = type;
-      let reqs = [...dietaryReqs];
-
-      // "Personalise" uses the user's saved preferences
-      if (type === "personalise" && user?.preferences) {
-        const prefs = user.preferences;
-        transformType = prefs.diet || prefs.budget || "seasonal";
-        if (prefs.dietary_requirements) reqs = [...reqs, ...prefs.dietary_requirements];
-        if (prefs.seasonal) transformType = "seasonal";
-        if (prefs.eco) transformType = "eco";
-        if (prefs.diet === "veggie") transformType = "veggie";
-        if (prefs.diet === "vegan") transformType = "vegan";
-        if (prefs.budget === "cheap") transformType = "cheaper";
-        if (prefs.budget === "luxurious") transformType = "luxurious";
-      }
-
-      const data = await transformRecipe(recipe.id, transformType, reqs);
+      const data = await transformRecipe(recipe.id, type, dietaryReqs);
       setTransformData(data);
       setDisplayIngredients(data.ingredients);
     } catch (e: any) {

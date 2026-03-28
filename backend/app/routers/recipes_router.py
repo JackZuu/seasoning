@@ -336,10 +336,31 @@ async def transform_recipe(
     _assert_ownership(recipe, current_user.id)
 
     recipe_text = _recipe_to_text(recipe)
-    dietary_str = ", ".join(req.dietary_requirements) if req.dietary_requirements else "None"
+
+    # Build transformation description from user preferences for "personalise"
+    transformation = req.transformation
+    dietary_reqs = list(req.dietary_requirements)
+
+    if transformation == "personalise":
+        prefs = current_user.preferences if isinstance(current_user.preferences, dict) else {}
+        parts = []
+        if prefs.get("diet") in ("veggie", "vegan"):
+            parts.append(f"Make it {prefs['diet']}")
+        if prefs.get("seasonal"):
+            parts.append("Use seasonal ingredients")
+        if prefs.get("eco"):
+            parts.append("Reduce environmental impact")
+        if prefs.get("budget") == "cheap":
+            parts.append("Make it budget-friendly")
+        elif prefs.get("budget") == "luxurious":
+            parts.append("Use premium ingredients")
+        dietary_reqs.extend(prefs.get("dietary_requirements", []))
+        transformation = " + ".join(parts) if parts else "seasonal"
+
+    dietary_str = ", ".join(set(dietary_reqs)) if dietary_reqs else "None"
 
     user_msg = (
-        f"Transformation: {req.transformation}\n"
+        f"Transformation: {transformation}\n"
         f"Dietary requirements: {dietary_str}\n\n"
         f"Recipe:\n{recipe_text}"
     )
