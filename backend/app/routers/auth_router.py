@@ -82,7 +82,11 @@ async def forgot_password(req: ForgotPasswordRequest, request: Request, db: Asyn
         ))
         await db.commit()
 
-        base_url = os.getenv("APP_URL", str(request.base_url).rstrip("/"))
+        base_url = os.getenv("APP_URL", str(request.base_url)).rstrip("/")
+        # Strip any trailing path — APP_URL must be origin only (no /dashboard etc.)
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(base_url)
+        base_url = urlunparse((parsed.scheme or "https", parsed.netloc, "", "", "", ""))
         reset_link = f"{base_url}/reset-password?token={token}&email={req.email}"
         send_password_reset(req.email, reset_link)
 
