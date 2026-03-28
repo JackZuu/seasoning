@@ -52,17 +52,22 @@ export default function LarderPage() {
     setSaving(suggestion.title);
     try {
       const allIngredients = [...suggestion.key_ingredients, ...suggestion.missing_ingredients];
+      // Format as a complete recipe so the parser accepts it
       const text = [
-        `Recipe: ${suggestion.title}`,
+        suggestion.title,
+        `Serves 4`,
         ``,
-        suggestion.description,
-        ``,
-        `Serves: 4`,
+        `${suggestion.description}`,
         ``,
         `Ingredients:`,
-        ...allIngredients.map(i => `- ${i}`),
+        ...allIngredients.map((item, i) => `- ${item}`),
         ``,
-        `Please generate the full recipe with precise quantities for each ingredient and detailed step-by-step cooking instructions.`,
+        `Method:`,
+        `1. Prepare all ingredients as needed.`,
+        `2. Cook following standard technique for ${suggestion.title.toLowerCase()}.`,
+        `3. Season to taste and serve.`,
+        ``,
+        `Note: Please fill in precise quantities for each ingredient and expand the method into detailed step-by-step instructions.`,
       ].join("\n");
       const recipe = await parseRecipe(text);
       navigate(`/recipes/${recipe.id}`);

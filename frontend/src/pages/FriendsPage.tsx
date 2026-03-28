@@ -41,14 +41,22 @@ export default function FriendsPage() {
   }
 
   async function handleAccept(inviteId: number, fromUser: FriendSearchResult) {
-    await acceptInvite(inviteId);
-    setInvites(prev => prev.filter(i => i.id !== inviteId));
-    setFriends(prev => [...prev, fromUser]);
+    try {
+      await acceptInvite(inviteId);
+      setInvites(prev => prev.filter(i => i.id !== inviteId));
+      setFriends(prev => [...prev, fromUser]);
+    } catch (e: any) {
+      alert("Failed to accept: " + e.message);
+    }
   }
 
   async function handleDecline(inviteId: number) {
-    await declineInvite(inviteId);
-    setInvites(prev => prev.filter(i => i.id !== inviteId));
+    try {
+      await declineInvite(inviteId);
+      setInvites(prev => prev.filter(i => i.id !== inviteId));
+    } catch (e: any) {
+      alert("Failed to decline: " + e.message);
+    }
   }
 
   async function handleSelectFriend(friend: FriendSearchResult) {

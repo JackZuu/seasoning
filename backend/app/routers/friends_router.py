@@ -63,7 +63,10 @@ async def send_invite(
     await db.commit()
 
     from_name = current_user.display_name or current_user.email
-    send_friend_invite_email(target.email, from_name)
+    try:
+        send_friend_invite_email(target.email, from_name)
+    except Exception as e:
+        print(f"Friend invite email failed: {e}")
 
     return {"message": "Invite sent"}
 
@@ -106,7 +109,10 @@ async def accept_invite(
 
     sender = await db.get(User, friendship.user_id)
     my_name = current_user.display_name or current_user.email
-    send_friend_accepted_email(sender.email, my_name)
+    try:
+        send_friend_accepted_email(sender.email, my_name)
+    except Exception as e:
+        print(f"Friend accepted email failed: {e}")
 
     return {"message": "Friend added"}
 

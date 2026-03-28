@@ -6,6 +6,10 @@ resend.api_key = os.getenv("RESEND_API_KEY", "")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "Seasoning <onboarding@resend.dev>")
 
 
+def _get_app_url() -> str:
+    return os.getenv("APP_URL", "").rstrip("/")
+
+
 def _send(to_email: str, subject: str, html: str):
     if not resend.api_key:
         print(f"[EMAIL] To: {to_email} | Subject: {subject}")
@@ -31,6 +35,7 @@ def send_password_reset(to_email: str, reset_link: str):
 
 
 def send_welcome_email(to_email: str, name: str):
+    app_url = _get_app_url()
     _send(to_email, f"Welcome to Seasoning, {name}!", (
         f"<p>Hi {name},</p>"
         f"<p>Welcome to <strong>Seasoning</strong> — your personal recipe book.</p>"
@@ -44,27 +49,31 @@ def send_welcome_email(to_email: str, name: str):
         f"<li>Stock your larder and let us suggest what to cook tonight</li>"
         f"<li>Share your favourites with friends</li>"
         f"</ul>"
+        f'<p><a href="{app_url}/dashboard" style="display:inline-block;background:#658086;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Open Seasoning</a></p>'
         f"<p>Happy cooking!</p>"
         f"<p>— The Seasoning team</p>"
     ))
 
 
 def send_friend_invite_email(to_email: str, from_name: str):
+    app_url = _get_app_url()
     _send(to_email, f"{from_name} wants to share recipes with you!", (
         f"<p>Hi there,</p>"
         f"<p><strong>{from_name}</strong> has sent you a friend request on Seasoning.</p>"
         f"<p>Accept their invite and you'll be able to browse each other's recipe books, "
         f"save each other's favourites, and get cooking together.</p>"
-        f"<p>Log in to Seasoning to accept.</p>"
+        f'<p><a href="{app_url}/friends" style="display:inline-block;background:#658086;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">View invite</a></p>'
         f"<p>— Seasoning</p>"
     ))
 
 
 def send_friend_accepted_email(to_email: str, friend_name: str):
+    app_url = _get_app_url()
     _send(to_email, f"{friend_name} accepted your friend request!", (
         f"<p>Great news!</p>"
         f"<p><strong>{friend_name}</strong> has accepted your friend request on Seasoning. "
         f"You can now browse their recipe book and save any of their recipes to yours.</p>"
+        f'<p><a href="{app_url}/friends" style="display:inline-block;background:#658086;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">See their recipes</a></p>'
         f"<p>Happy cooking together!</p>"
         f"<p>— Seasoning</p>"
     ))
