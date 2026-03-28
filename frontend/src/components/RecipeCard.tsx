@@ -35,7 +35,7 @@ export default function RecipeCard({ recipe, onDelete }: Props) {
         gap: 8,
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(26,95,63,0.12)";
+        (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(101,128,134,0.18)";
         (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
       }}
       onMouseLeave={e => {

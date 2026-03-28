@@ -54,7 +54,7 @@ export default function ResetPasswordPage() {
           Seasoning
         </h1>
         <p style={{ textAlign: "center", color: colors.muted, fontFamily: "system-ui, sans-serif", fontSize: 14, marginBottom: 32 }}>
-          Your recipe collection
+          A pinch of you
         </p>
 
         <div style={{ background: colors.white, borderRadius: 12, padding: "32px 28px", boxShadow: "0 2px 16px rgba(0,0,0,0.06)", border: `1px solid ${colors.border}` }}>

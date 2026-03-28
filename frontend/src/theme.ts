@@ -1,12 +1,12 @@
 export const colors = {
-  green:      "#1a5f3f",
-  greenMid:   "#2d8659",
-  greenLight: "#e8f5ee",
-  cream:      "#f5f1e8",
-  text:       "#1a1a1a",
+  green:      "#658086",   // Primary Teal
+  greenMid:   "#7a9399",   // Mid Teal (secondary buttons)
+  greenLight: "#dfe9ec",   // Light Teal (success backgrounds)
+  cream:      "#f0f2f1",   // Page background
+  text:       "#384036",   // Secondary Charcoal
   muted:      "#6b7280",
-  border:     "#d1e8da",
-  white:      "#ffffff",
+  border:     "#c3d1d5",   // Teal-tinted border
+  white:      "#ffffff",   // Accent White
   error:      "#dc2626",
   errorBg:    "#fee2e2",
   errorBorder:"#fca5a5",
