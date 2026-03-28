@@ -23,6 +23,8 @@ export interface Recipe {
   servings: number | null;
   ingredients: Ingredient[];
   instructions: InstructionStep[];
+  image_url: string | null;
+  notes: string;
   created_at: string;
 }
 
@@ -31,8 +33,39 @@ export interface RecipeListItem {
   title: string;
   servings: number | null;
   ingredient_count: number;
+  image_url: string | null;
   created_at: string;
 }
+
+export interface TransformResponse {
+  ingredients: Ingredient[];
+  instructions: InstructionStep[];
+  reasoning: Record<string, string>;
+}
+
+export interface SubstitutionResponse {
+  original: string;
+  substitute: string;
+  reasoning: string;
+}
+
+export interface NutritionPerServing {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  saturated_fat_g: number;
+  fiber_g: number;
+  sugar_g: number;
+  sodium_mg: number;
+}
+
+export interface NutritionResponse {
+  servings: number;
+  per_serving: NutritionPerServing;
+}
+
+// ─── Parse ───────────────────────────────────────────────────────────────────
 
 export async function parseRecipe(rawText: string): Promise<Recipe> {
   const res = await apiFetch("/api/recipes/parse", {
@@ -42,28 +75,6 @@ export async function parseRecipe(rawText: string): Promise<Recipe> {
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Failed to parse recipe");
   return data;
-}
-
-export async function listRecipes(): Promise<RecipeListItem[]> {
-  const res = await apiFetch("/api/recipes");
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Failed to load recipes");
-  return data;
-}
-
-export async function getRecipe(id: number): Promise<Recipe> {
-  const res = await apiFetch(`/api/recipes/${id}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "Recipe not found");
-  return data;
-}
-
-export async function deleteRecipe(id: number): Promise<void> {
-  const res = await apiFetch(`/api/recipes/${id}`, { method: "DELETE" });
-  if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.detail || "Failed to delete recipe");
-  }
 }
 
 export async function parseRecipeFromImage(files: File[]): Promise<Recipe> {
@@ -89,6 +100,55 @@ export async function parseRecipeFromURL(url: string): Promise<Recipe> {
   return data;
 }
 
+// ─── CRUD ────────────────────────────────────────────────────────────────────
+
+export async function listRecipes(): Promise<RecipeListItem[]> {
+  const res = await apiFetch("/api/recipes");
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Failed to load recipes");
+  return data;
+}
+
+export async function getRecipe(id: number): Promise<Recipe> {
+  const res = await apiFetch(`/api/recipes/${id}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Recipe not found");
+  return data;
+}
+
+export async function deleteRecipe(id: number): Promise<void> {
+  const res = await apiFetch(`/api/recipes/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.detail || "Failed to delete recipe");
+  }
+}
+
+export async function updateNotes(id: number, notes: string): Promise<Recipe> {
+  const res = await apiFetch(`/api/recipes/${id}/notes`, {
+    method: "PATCH",
+    body: JSON.stringify({ notes }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Failed to save notes");
+  return data;
+}
+
+export async function uploadRecipeImage(id: number, file: File): Promise<Recipe> {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await apiFetch(`/api/recipes/${id}/upload-image`, {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Failed to upload image");
+  return data;
+}
+
+// ─── Conversion ──────────────────────────────────────────────────────────────
+
 export async function convertRecipe(
   id: number,
   targetSystem: "us_customary" | "metric"
@@ -100,4 +160,48 @@ export async function convertRecipe(
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "Conversion failed");
   return data.ingredients;
+}
+
+// ─── AI Features ─────────────────────────────────────────────────────────────
+
+export async function transformRecipe(
+  id: number,
+  transformation: string,
+  dietaryRequirements: string[] = []
+): Promise<TransformResponse> {
+  const res = await apiFetch(`/api/recipes/${id}/transform`, {
+    method: "POST",
+    body: JSON.stringify({ transformation, dietary_requirements: dietaryRequirements }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Transformation failed");
+  return data;
+}
+
+export async function substituteIngredient(
+  id: number,
+  ingredientItem: string,
+  recipeTitle: string,
+  dietaryRequirements: string[] = []
+): Promise<SubstitutionResponse> {
+  const res = await apiFetch(`/api/recipes/${id}/substitute`, {
+    method: "POST",
+    body: JSON.stringify({
+      ingredient_item: ingredientItem,
+      recipe_title: recipeTitle,
+      dietary_requirements: dietaryRequirements,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Substitution failed");
+  return data;
+}
+
+export async function getNutrition(id: number): Promise<NutritionResponse> {
+  const res = await apiFetch(`/api/recipes/${id}/nutrition`, {
+    method: "POST",
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Could not get nutrition info");
+  return data;
 }

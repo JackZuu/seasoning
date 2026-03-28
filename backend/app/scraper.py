@@ -14,15 +14,40 @@ _HEADERS = {
 }
 
 
+def _extract_hero_image(html: str, url: str) -> str | None:
+    """Try to find the recipe's hero image from og:image or structured data."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Try og:image first
+    og = soup.find("meta", property="og:image")
+    if og and og.get("content"):
+        return og["content"]
+
+    # Try schema.org image
+    for script in soup.find_all("script", type="application/ld+json"):
+        try:
+            import json
+            data = json.loads(script.string or "")
+            if isinstance(data, list):
+                data = data[0]
+            img = data.get("image")
+            if isinstance(img, list):
+                img = img[0]
+            if isinstance(img, dict):
+                img = img.get("url")
+            if img:
+                return img
+        except Exception:
+            continue
+
+    return None
+
+
 def scrape_recipe_url(url: str) -> dict:
     """Scrape a recipe from a URL.
 
-    Strategy:
-    1. Try recipe-scrapers for structured extraction.
-    2. If that fails, send raw page text through OpenAI.
-
     Returns:
-        Raw dict with recipe data (title, ingredients list, instructions list).
+        dict with 'content' key (OpenAI response) and optional 'image_url'.
 
     Raises:
         ValueError if the URL can't be fetched or doesn't contain a recipe.
@@ -30,10 +55,13 @@ def scrape_recipe_url(url: str) -> dict:
     try:
         resp = httpx.get(url, follow_redirects=True, timeout=15.0, headers=_HEADERS)
         resp.raise_for_status()
+    except httpx.TimeoutException:
+        raise ValueError("The read operation timed out")
     except httpx.HTTPError as e:
         raise ValueError(f"Could not fetch URL: {e}")
 
     html = resp.text
+    image_url = _extract_hero_image(html, url)
 
     # --- Attempt 1: recipe-scrapers ---
     try:
@@ -43,14 +71,21 @@ def scrape_recipe_url(url: str) -> dict:
         instructions = scraper.instructions_list()
 
         if title and ingredients and instructions:
-            # Send through OpenAI to get structured JSON matching our schema
             raw_text = (
                 f"Title: {title}\n"
                 f"Servings: {scraper.yields()}\n\n"
                 f"Ingredients:\n" + "\n".join(f"- {i}" for i in ingredients) + "\n\n"
                 f"Instructions:\n" + "\n".join(f"{n+1}. {s}" for n, s in enumerate(instructions))
             )
-            return _parse_via_openai(raw_text, use_url_prompt=False)
+            result = _parse_via_openai(raw_text, use_url_prompt=False)
+            # Try to get image from scraper too
+            if not image_url:
+                try:
+                    image_url = scraper.image()
+                except Exception:
+                    pass
+            result["image_url"] = image_url
+            return result
     except Exception:
         pass  # Fall through to attempt 2
 
@@ -60,11 +95,12 @@ def scrape_recipe_url(url: str) -> dict:
         tag.decompose()
     page_text = soup.get_text(separator="\n", strip=True)
 
-    # Truncate to ~8000 chars to stay within token limits
     if len(page_text) > 8000:
         page_text = page_text[:8000]
 
-    return _parse_via_openai(page_text, use_url_prompt=True)
+    result = _parse_via_openai(page_text, use_url_prompt=True)
+    result["image_url"] = image_url
+    return result
 
 
 def _parse_via_openai(text: str, use_url_prompt: bool) -> dict:

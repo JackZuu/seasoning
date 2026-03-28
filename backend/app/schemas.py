@@ -52,7 +52,6 @@ class InstructionStep(BaseModel):
     step: int
     text: str
     duration_minutes: Optional[int] = None
-    # Extensible: future AI transformations can add tags (e.g. "vegetarian-swap")
     technique_tags: list[str] = []
 
 
@@ -69,12 +68,14 @@ class RecipeCreate(BaseModel):
     servings: Optional[int] = None
     ingredients: list[Ingredient]
     instructions: list[InstructionStep]
+    image_url: Optional[str] = None
 
 class RecipeListItem(BaseModel):
     id: int
     title: str
     servings: Optional[int] = None
     ingredient_count: int
+    image_url: Optional[str] = None
     created_at: datetime
 
 class RecipeResponse(BaseModel):
@@ -86,6 +87,8 @@ class RecipeResponse(BaseModel):
     servings: Optional[int] = None
     ingredients: list[Ingredient]
     instructions: list[InstructionStep]
+    image_url: Optional[str] = None
+    notes: Optional[str] = ""
     created_at: datetime
 
 
@@ -96,3 +99,48 @@ class ConvertRequest(BaseModel):
 
 class ConvertResponse(BaseModel):
     ingredients: list[Ingredient]
+
+
+# ─── Notes ────────────────────────────────────────────────────────────────────
+
+class RecipeUpdateNotes(BaseModel):
+    notes: str
+
+
+# ─── AI Transformations ──────────────────────────────────────────────────────
+
+class TransformRequest(BaseModel):
+    transformation: Literal["veggie", "vegan", "seasonal", "eco", "cheaper", "luxurious"]
+    dietary_requirements: list[str] = []
+
+class TransformResponse(BaseModel):
+    ingredients: list[Ingredient]
+    instructions: list[InstructionStep]
+    reasoning: dict[str, str]
+
+class SubstitutionRequest(BaseModel):
+    ingredient_item: str
+    recipe_title: str
+    dietary_requirements: list[str] = []
+
+class SubstitutionResponse(BaseModel):
+    original: str
+    substitute: str
+    reasoning: str
+
+
+# ─── Nutrition ────────────────────────────────────────────────────────────────
+
+class NutritionPerServing(BaseModel):
+    calories: float
+    protein_g: float
+    carbs_g: float
+    fat_g: float
+    saturated_fat_g: float = 0
+    fiber_g: float = 0
+    sugar_g: float = 0
+    sodium_mg: float = 0
+
+class NutritionResponse(BaseModel):
+    servings: int
+    per_serving: NutritionPerServing

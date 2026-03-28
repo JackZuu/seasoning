@@ -33,4 +33,6 @@ class Recipe(Base):
     ingredients = Column(JSON, nullable=False, default=list)
     # list of {step, text, duration_minutes, technique_tags}
     instructions = Column(JSON, nullable=False, default=list)
+    image_url = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True, default="")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)

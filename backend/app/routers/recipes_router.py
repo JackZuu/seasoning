@@ -11,12 +11,19 @@ from app.models import Recipe
 from app.schemas import (
     RecipeParseRequest, RecipeCreate, RecipeResponse, RecipeListItem,
     ConvertRequest, ConvertResponse, Ingredient, InstructionStep,
-    RecipeURLParseRequest,
+    RecipeURLParseRequest, RecipeUpdateNotes,
+    TransformRequest, TransformResponse,
+    SubstitutionRequest, SubstitutionResponse,
+    NutritionResponse, NutritionPerServing,
 )
 from app.auth import get_current_user
 from app.models import User
 from app.openai_module import chat_completion, vision_completion
-from app.prompts import RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT
+from app.prompts import (
+    RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT,
+    RECIPE_TRANSFORM_SYSTEM_PROMPT, INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT,
+    NUTRITION_SYSTEM_PROMPT,
+)
 from app.conversions import convert_ingredients
 from app.scraper import scrape_recipe_url
 
@@ -31,7 +38,6 @@ MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 def _extract_json(content: str) -> dict:
     """Extract a JSON object from an LLM response, stripping markdown fences."""
-    # Strip markdown code fences if present
     if "```json" in content:
         start = content.find("```json") + 7
         end = content.find("```", start)
@@ -41,7 +47,6 @@ def _extract_json(content: str) -> dict:
         end = content.find("```", start)
         content = content[start:end].strip()
 
-    # Extract the JSON object
     first = content.find("{")
     last = content.rfind("}")
     if first != -1 and last != -1:
@@ -59,7 +64,6 @@ def _extract_json(content: str) -> dict:
 
 
 def _parse_recipe_text(raw_text: str) -> dict:
-    """Synchronous helper: call OpenAI and extract recipe JSON."""
     result = chat_completion(
         messages=[
             {"role": "system", "content": RECIPE_PARSE_SYSTEM_PROMPT},
@@ -68,10 +72,8 @@ def _parse_recipe_text(raw_text: str) -> dict:
         model="gpt-4o-mini",
         temperature=0.2,
     )
-
     if "error" in result and "content" not in result:
         raise ValueError(result["error"])
-
     return _extract_json(result.get("content", ""))
 
 
@@ -83,6 +85,8 @@ def _orm_to_response(recipe: Recipe) -> RecipeResponse:
         servings=recipe.servings,
         ingredients=[Ingredient(**i) for i in (recipe.ingredients or [])],
         instructions=[InstructionStep(**s) for s in (recipe.instructions or [])],
+        image_url=recipe.image_url,
+        notes=recipe.notes or "",
         created_at=recipe.created_at,
     )
 
@@ -92,8 +96,7 @@ def _assert_ownership(recipe: Recipe | None, user_id: int):
         raise HTTPException(status_code=404, detail="Recipe not found")
 
 
-async def _save_recipe(data: dict, user_id: int, db: AsyncSession) -> Recipe:
-    """Validate parsed data and save to DB."""
+async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: str | None = None) -> Recipe:
     try:
         recipe_data = RecipeCreate(**data)
     except (ValidationError, Exception) as e:
@@ -105,6 +108,7 @@ async def _save_recipe(data: dict, user_id: int, db: AsyncSession) -> Recipe:
         servings=recipe_data.servings,
         ingredients=[ing.model_dump() for ing in recipe_data.ingredients],
         instructions=[step.model_dump() for step in recipe_data.instructions],
+        image_url=image_url or recipe_data.image_url,
     )
     db.add(recipe)
     await db.commit()
@@ -112,7 +116,26 @@ async def _save_recipe(data: dict, user_id: int, db: AsyncSession) -> Recipe:
     return recipe
 
 
-# ─── Endpoints ────────────────────────────────────────────────────────────────
+def _recipe_to_text(recipe: Recipe) -> str:
+    """Convert a recipe to a text summary for AI context."""
+    lines = [f"Title: {recipe.title}", f"Servings: {recipe.servings or 'unknown'}"]
+    lines.append("\nIngredients:")
+    for ing in (recipe.ingredients or []):
+        qty = ing.get("quantity", "")
+        unit = ing.get("unit", "") or ""
+        item = ing.get("item", "")
+        prep = ing.get("preparation", "")
+        line = f"- {qty} {unit} {item}".strip()
+        if prep:
+            line += f", {prep}"
+        lines.append(line)
+    lines.append("\nInstructions:")
+    for step in (recipe.instructions or []):
+        lines.append(f"{step.get('step', '')}. {step.get('text', '')}")
+    return "\n".join(lines)
+
+
+# ─── Parse Endpoints ──────────────────────────────────────────────────────────
 
 @router.post("/parse", response_model=RecipeResponse, status_code=201)
 async def parse_and_save(
@@ -143,11 +166,9 @@ async def parse_image_and_save(
         content_type = img.content_type or "image/jpeg"
         if content_type not in ALLOWED_IMAGE_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported image type: {content_type}")
-
         raw = await img.read()
         if len(raw) > MAX_IMAGE_SIZE:
             raise HTTPException(status_code=400, detail="Each image must be under 10 MB")
-
         b64 = base64.b64encode(raw).decode()
         image_data_list.append((b64, content_type))
 
@@ -177,20 +198,27 @@ async def parse_url_and_save(
 ):
     def _do_scrape():
         result = scrape_recipe_url(req.url)
-        # scrape_recipe_url returns the raw OpenAI result dict with "content"
-        return _extract_json(result.get("content", ""))
+        data = _extract_json(result.get("content", ""))
+        image_url = result.get("image_url")
+        return data, image_url
 
     try:
-        data = await asyncio.to_thread(_do_scrape)
+        data, image_url = await asyncio.to_thread(_do_scrape)
     except ValueError as e:
         detail = str(e)
         if "not a recipe" in detail.lower():
             raise HTTPException(status_code=422, detail="not_a_recipe")
+        if "timed out" in detail.lower() or "timeout" in detail.lower():
+            raise HTTPException(status_code=422, detail="url_timeout")
+        if "could not fetch" in detail.lower():
+            raise HTTPException(status_code=422, detail="url_unreachable")
         raise HTTPException(status_code=422, detail=detail)
 
-    recipe = await _save_recipe(data, current_user.id, db)
+    recipe = await _save_recipe(data, current_user.id, db, image_url=image_url)
     return _orm_to_response(recipe)
 
+
+# ─── CRUD Endpoints ──────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[RecipeListItem])
 async def list_recipes(
@@ -209,6 +237,7 @@ async def list_recipes(
             title=r.title,
             servings=r.servings,
             ingredient_count=len(r.ingredients) if r.ingredients else 0,
+            image_url=r.image_url if r.image_url and r.image_url.startswith("http") else None,
             created_at=r.created_at,
         )
         for r in recipes
@@ -238,6 +267,48 @@ async def delete_recipe(
     await db.commit()
 
 
+@router.patch("/{recipe_id}/notes", response_model=RecipeResponse)
+async def update_notes(
+    recipe_id: int,
+    req: RecipeUpdateNotes,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+    recipe.notes = req.notes
+    await db.commit()
+    await db.refresh(recipe)
+    return _orm_to_response(recipe)
+
+
+@router.post("/{recipe_id}/upload-image", response_model=RecipeResponse)
+async def upload_recipe_image(
+    recipe_id: int,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    content_type = image.content_type or "image/jpeg"
+    if content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported image type: {content_type}")
+
+    raw = await image.read()
+    if len(raw) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="Image must be under 10 MB")
+
+    b64 = base64.b64encode(raw).decode()
+    recipe.image_url = f"data:{content_type};base64,{b64}"
+    await db.commit()
+    await db.refresh(recipe)
+    return _orm_to_response(recipe)
+
+
+# ─── Conversion ───────────────────────────────────────────────────────────────
+
 @router.post("/{recipe_id}/convert", response_model=ConvertResponse)
 async def convert_recipe(
     recipe_id: int,
@@ -247,7 +318,131 @@ async def convert_recipe(
 ):
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
-
-    # Always convert from the original stored data
     converted = convert_ingredients(recipe.ingredients or [], req.target_system)
     return ConvertResponse(ingredients=[Ingredient(**i) for i in converted])
+
+
+# ─── AI Transformations ──────────────────────────────────────────────────────
+
+@router.post("/{recipe_id}/transform", response_model=TransformResponse)
+async def transform_recipe(
+    recipe_id: int,
+    req: TransformRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    recipe_text = _recipe_to_text(recipe)
+    dietary_str = ", ".join(req.dietary_requirements) if req.dietary_requirements else "None"
+
+    user_msg = (
+        f"Transformation: {req.transformation}\n"
+        f"Dietary requirements: {dietary_str}\n\n"
+        f"Recipe:\n{recipe_text}"
+    )
+
+    def _do_transform():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": RECIPE_TRANSFORM_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.3,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_transform)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return TransformResponse(
+        ingredients=[Ingredient(**i) for i in data.get("ingredients", [])],
+        instructions=[InstructionStep(**s) for s in data.get("instructions", [])],
+        reasoning=data.get("reasoning", {}),
+    )
+
+
+@router.post("/{recipe_id}/substitute", response_model=SubstitutionResponse)
+async def substitute_ingredient(
+    recipe_id: int,
+    req: SubstitutionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    dietary_str = ", ".join(req.dietary_requirements) if req.dietary_requirements else "None"
+
+    user_msg = (
+        f"Recipe: {req.recipe_title}\n"
+        f"Ingredient I don't have: {req.ingredient_item}\n"
+        f"Dietary requirements: {dietary_str}\n\n"
+        f"Full recipe context:\n{_recipe_to_text(recipe)}"
+    )
+
+    def _do_substitute():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.3,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_substitute)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return SubstitutionResponse(
+        original=data.get("original", req.ingredient_item),
+        substitute=data.get("substitute", ""),
+        reasoning=data.get("reasoning", ""),
+    )
+
+
+@router.post("/{recipe_id}/nutrition", response_model=NutritionResponse)
+async def get_nutrition(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    recipe_text = _recipe_to_text(recipe)
+
+    def _do_nutrition():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": NUTRITION_SYSTEM_PROMPT},
+                {"role": "user", "content": recipe_text},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.2,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_nutrition)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    per_serving = data.get("per_serving", data)
+    return NutritionResponse(
+        servings=data.get("servings", recipe.servings or 1),
+        per_serving=NutritionPerServing(**per_serving),
+    )

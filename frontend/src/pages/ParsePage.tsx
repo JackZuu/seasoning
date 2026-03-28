@@ -26,6 +26,7 @@ export default function ParsePage() {
   const [loadingLabel, setLoadingLabel] = useState("");
   const [error, setError] = useState("");
   const [showNotRecipe, setShowNotRecipe] = useState(false);
+  const [showUrlFallback, setShowUrlFallback] = useState(false);
 
   function addFiles(newFiles: FileList | null) {
     if (!newFiles) return;
@@ -65,6 +66,8 @@ export default function ParsePage() {
     } catch (e: any) {
       if (e.message === "not_a_recipe") {
         setShowNotRecipe(true);
+      } else if (e.message === "url_timeout" || e.message === "url_unreachable") {
+        setShowUrlFallback(true);
       } else {
         setError(e.message);
       }
@@ -316,6 +319,56 @@ export default function ParsePage() {
           onClose={() => setShowNotRecipe(false)}
           onSwitchToText={() => { setShowNotRecipe(false); setActiveTab("text"); }}
         />
+      )}
+
+      {showUrlFallback && (
+        <div
+          onClick={() => setShowUrlFallback(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: colors.white, borderRadius: 12, padding: "32px 28px",
+              maxWidth: 420, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+              textAlign: "center", fontFamily: "system-ui, sans-serif",
+            }}
+          >
+            <div style={{ fontSize: 36, marginBottom: 16 }}>🌐</div>
+            <h3 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: 18, marginBottom: 12 }}>
+              Couldn't reach that website
+            </h3>
+            <p style={{ color: colors.muted, fontSize: 14, lineHeight: 1.6, marginBottom: 24 }}>
+              The site may block scrapers or be temporarily unavailable. Try one of these instead:
+            </p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={() => { setShowUrlFallback(false); setActiveTab("text"); }}
+                style={{
+                  background: colors.green, color: colors.white, border: "none",
+                  borderRadius: 8, padding: "10px 18px", fontSize: 14,
+                  fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                Paste text instead
+              </button>
+              <button
+                onClick={() => { setShowUrlFallback(false); setActiveTab("image"); }}
+                style={{
+                  background: "none", border: `1px solid ${colors.border}`,
+                  borderRadius: 8, padding: "10px 18px", fontSize: 14,
+                  color: colors.text, cursor: "pointer",
+                }}
+              >
+                Upload screenshot
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

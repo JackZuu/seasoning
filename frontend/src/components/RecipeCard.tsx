@@ -26,13 +26,12 @@ export default function RecipeCard({ recipe, onDelete }: Props) {
         background: colors.white,
         border: `1px solid ${colors.border}`,
         borderRadius: 12,
-        padding: "18px 20px",
         cursor: "pointer",
         transition: "box-shadow 0.15s, transform 0.1s",
         position: "relative",
         display: "flex",
         flexDirection: "column",
-        gap: 8,
+        overflow: "hidden",
       }}
       onMouseEnter={e => {
         (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(101,128,134,0.18)";
@@ -43,24 +42,34 @@ export default function RecipeCard({ recipe, onDelete }: Props) {
         (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
       }}
     >
-      <h3 style={{
-        margin: 0,
-        fontSize: 16,
-        fontFamily: "Georgia, serif",
-        color: colors.text,
-        lineHeight: 1.3,
-        paddingRight: 28,
-      }}>
-        {recipe.title}
-      </h3>
+      {recipe.image_url && (
+        <img
+          src={recipe.image_url}
+          alt={recipe.title}
+          style={{ width: "100%", height: 140, objectFit: "cover" }}
+        />
+      )}
 
-      <div style={{ fontSize: 13, color: colors.muted, fontFamily: "system-ui, sans-serif", display: "flex", gap: 12 }}>
-        {recipe.servings && <span>Serves {recipe.servings}</span>}
-        <span>{recipe.ingredient_count} ingredients</span>
-      </div>
+      <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+        <h3 style={{
+          margin: 0,
+          fontSize: 16,
+          fontFamily: "Georgia, serif",
+          color: colors.text,
+          lineHeight: 1.3,
+          paddingRight: 28,
+        }}>
+          {recipe.title}
+        </h3>
 
-      <div style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif", marginTop: 4 }}>
-        {date}
+        <div style={{ fontSize: 13, color: colors.muted, fontFamily: "system-ui, sans-serif", display: "flex", gap: 12 }}>
+          {recipe.servings && <span>Serves {recipe.servings}</span>}
+          <span>{recipe.ingredient_count} ingredients</span>
+        </div>
+
+        <div style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif", marginTop: 4 }}>
+          {date}
+        </div>
       </div>
 
       <button
@@ -68,7 +77,7 @@ export default function RecipeCard({ recipe, onDelete }: Props) {
         title="Delete recipe"
         style={{
           position: "absolute",
-          top: 14,
+          top: recipe.image_url ? 148 : 14,
           right: 14,
           background: "none",
           border: "none",
