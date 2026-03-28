@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, safeJson } from "./client";
 
 export interface AuthResponse {
   access_token: string;
@@ -11,7 +11,7 @@ export async function signup(email: string, password: string): Promise<AuthRespo
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Signup failed");
   return data;
 }
@@ -21,7 +21,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Invalid email or password");
   return data;
 }
@@ -31,7 +31,7 @@ export async function forgotPassword(email: string): Promise<{ message: string }
     method: "POST",
     body: JSON.stringify({ email }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Request failed");
   return data;
 }
@@ -41,7 +41,7 @@ export async function resetPassword(email: string, token: string, newPassword: s
     method: "POST",
     body: JSON.stringify({ email, token, new_password: newPassword }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Reset failed");
   return data;
 }

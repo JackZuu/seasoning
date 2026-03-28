@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, safeJson } from "./client";
 import type { User } from "../context/AuthContext";
 
 export async function updateProfile(data: {
@@ -11,7 +11,7 @@ export async function updateProfile(data: {
     method: "PATCH",
     body: JSON.stringify(data),
   });
-  const result = await res.json();
+  const result = await safeJson(res);
   if (!res.ok) throw new Error(result.detail || "Failed to update profile");
   return result;
 }

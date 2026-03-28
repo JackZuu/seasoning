@@ -43,7 +43,9 @@ def _run_migrations(conn):
     _add_column_if_missing(conn, "users", "display_name", "VARCHAR")
     _add_column_if_missing(conn, "users", "recipe_book_name", "VARCHAR DEFAULT 'Your Recipe Book'")
     _add_column_if_missing(conn, "users", "currency", "VARCHAR DEFAULT 'GBP'")
-    _add_column_if_missing(conn, "users", "preferences", "TEXT")
+    # Use JSONB on Postgres, TEXT on SQLite (which stores JSON as text natively)
+    is_postgres = "postgresql" in str(conn.engine.url)
+    _add_column_if_missing(conn, "users", "preferences", "JSONB" if is_postgres else "TEXT")
 
 
 async def init_db():

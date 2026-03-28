@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, safeJson } from "./client";
 
 export interface Ingredient {
   quantity: number | null;
@@ -79,7 +79,7 @@ export async function parseRecipe(rawText: string): Promise<Recipe> {
     method: "POST",
     body: JSON.stringify({ raw_text: rawText }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to parse recipe");
   return data;
 }
@@ -92,7 +92,7 @@ export async function parseRecipeFromImage(files: File[]): Promise<Recipe> {
     method: "POST",
     body: formData,
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to parse image");
   return data;
 }
@@ -102,7 +102,7 @@ export async function parseRecipeFromURL(url: string): Promise<Recipe> {
     method: "POST",
     body: JSON.stringify({ url }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to parse URL");
   return data;
 }
@@ -111,14 +111,14 @@ export async function parseRecipeFromURL(url: string): Promise<Recipe> {
 
 export async function listRecipes(): Promise<RecipeListItem[]> {
   const res = await apiFetch("/api/recipes");
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to load recipes");
   return data;
 }
 
 export async function getRecipe(id: number): Promise<Recipe> {
   const res = await apiFetch(`/api/recipes/${id}`);
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Recipe not found");
   return data;
 }
@@ -126,7 +126,7 @@ export async function getRecipe(id: number): Promise<Recipe> {
 export async function deleteRecipe(id: number): Promise<void> {
   const res = await apiFetch(`/api/recipes/${id}`, { method: "DELETE" });
   if (!res.ok) {
-    const data = await res.json();
+    const data = await safeJson(res);
     throw new Error(data.detail || "Failed to delete recipe");
   }
 }
@@ -136,7 +136,7 @@ export async function updateNotes(id: number, notes: string): Promise<Recipe> {
     method: "PATCH",
     body: JSON.stringify({ notes }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to save notes");
   return data;
 }
@@ -149,7 +149,7 @@ export async function uploadRecipeImage(id: number, file: File): Promise<Recipe>
     method: "POST",
     body: formData,
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to upload image");
   return data;
 }
@@ -164,7 +164,7 @@ export async function convertRecipe(
     method: "POST",
     body: JSON.stringify({ target_system: targetSystem }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Conversion failed");
   return data.ingredients;
 }
@@ -180,7 +180,7 @@ export async function transformRecipe(
     method: "POST",
     body: JSON.stringify({ transformation, dietary_requirements: dietaryRequirements }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Transformation failed");
   return data;
 }
@@ -199,7 +199,7 @@ export async function substituteIngredient(
       dietary_requirements: dietaryRequirements,
     }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Substitution failed");
   return data;
 }
@@ -208,7 +208,7 @@ export async function getNutrition(id: number): Promise<NutritionResponse> {
   const res = await apiFetch(`/api/recipes/${id}/nutrition`, {
     method: "POST",
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not get nutrition info");
   return data;
 }
@@ -217,7 +217,7 @@ export async function estimateCost(id: number): Promise<CostResponse> {
   const res = await apiFetch(`/api/recipes/${id}/cost`, {
     method: "POST",
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not estimate cost");
   return data;
 }

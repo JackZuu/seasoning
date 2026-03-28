@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, safeJson } from "./client";
 
 export interface LarderItem {
   id: number;
@@ -15,7 +15,7 @@ export interface LarderRecipeSuggestion {
 
 export async function listLarder(): Promise<LarderItem[]> {
   const res = await apiFetch("/api/larder");
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to load larder");
   return data;
 }
@@ -25,7 +25,7 @@ export async function addLarderItem(item: string, category: string = "Other"): P
     method: "POST",
     body: JSON.stringify({ item, category }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to add item");
   return data;
 }
@@ -37,7 +37,7 @@ export async function removeLarderItem(id: number): Promise<void> {
 
 export async function generateRecipesFromLarder(): Promise<LarderRecipeSuggestion[]> {
   const res = await apiFetch("/api/larder/generate-recipes", { method: "POST" });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to generate recipes");
   return data.suggestions;
 }

@@ -19,3 +19,15 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
   return res;
 }
+
+/**
+ * Safely parse JSON from a response, returning a fallback object for non-JSON errors.
+ */
+export async function safeJson(res: Response): Promise<any> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { detail: text || `Server error (${res.status})` };
+  }
+}

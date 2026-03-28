@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, safeJson } from "./client";
 import type { Ingredient } from "./recipes";
 
 export interface BasketItem {
@@ -12,7 +12,7 @@ export interface BasketItem {
 
 export async function listBasket(): Promise<BasketItem[]> {
   const res = await apiFetch("/api/basket");
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to load basket");
   return data;
 }
@@ -22,7 +22,7 @@ export async function addToBasket(item: string, category: string = "Other", quan
     method: "POST",
     body: JSON.stringify({ item, category, quantity }),
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to add item");
   return data;
 }
@@ -37,7 +37,7 @@ export async function addRecipeToBasket(recipeId: number, ingredients: Ingredien
 
 export async function toggleCheck(id: number): Promise<boolean> {
   const res = await apiFetch(`/api/basket/${id}/check`, { method: "PATCH" });
-  const data = await res.json();
+  const data = await safeJson(res);
   return data.checked;
 }
 

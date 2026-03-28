@@ -83,7 +83,10 @@ async def update_profile(
     if req.display_name is not None:
         # Send welcome email on first name set
         if not current_user.display_name:
-            send_welcome_email(current_user.email, req.display_name)
+            try:
+                send_welcome_email(current_user.email, req.display_name)
+            except Exception as e:
+                print(f"Welcome email failed: {e}")
         current_user.display_name = req.display_name
     if req.recipe_book_name is not None:
         current_user.recipe_book_name = req.recipe_book_name
