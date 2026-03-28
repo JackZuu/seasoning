@@ -3,11 +3,27 @@ import { colors } from "../theme";
 import SaltShakerLogo from "./SaltShakerLogo";
 
 interface Props {
-  onSave: (name: string) => void;
+  onSave: (name: string) => Promise<void>;
 }
 
 export default function NameModal({ onSave }: Props) {
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setError("");
+    setLoading(true);
+    try {
+      await onSave(name.trim());
+    } catch (err: any) {
+      setError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div style={{
@@ -27,13 +43,21 @@ export default function NameModal({ onSave }: Props) {
         <p style={{ color: colors.muted, fontSize: 14, marginBottom: 28, lineHeight: 1.5 }}>
           What shall we call you?
         </p>
-        <form onSubmit={e => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+        {error && (
+          <div style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, borderRadius: 8, padding: "10px 14px", color: colors.error, fontSize: 13, marginBottom: 16 }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <input
             type="text"
             autoFocus
             placeholder="Your name"
             value={name}
             onChange={e => setName(e.target.value)}
+            disabled={loading}
             style={{
               padding: "12px 16px", border: `1px solid ${colors.border}`, borderRadius: 10,
               fontSize: 16, fontFamily: "system-ui, sans-serif", outline: "none",
@@ -42,14 +66,15 @@ export default function NameModal({ onSave }: Props) {
           />
           <button
             type="submit"
-            disabled={!name.trim()}
+            disabled={!name.trim() || loading}
             style={{
-              background: name.trim() ? colors.green : colors.muted,
+              background: name.trim() && !loading ? colors.green : colors.muted,
               color: colors.white, border: "none", borderRadius: 10,
-              padding: "12px", fontSize: 15, fontWeight: 600, cursor: name.trim() ? "pointer" : "not-allowed",
+              padding: "12px", fontSize: 15, fontWeight: 600,
+              cursor: name.trim() && !loading ? "pointer" : "not-allowed",
             }}
           >
-            Let's get cooking
+            {loading ? "Setting up..." : "Let's get cooking"}
           </button>
         </form>
       </div>

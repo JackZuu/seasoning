@@ -33,13 +33,9 @@ export default function DashboardPage() {
   }, []);
 
   async function handleNameSave(name: string) {
-    try {
-      const updated = await updateProfile({ display_name: name });
-      updateUser(updated);
-      setShowNameModal(false);
-    } catch {
-      // Allow retry
-    }
+    const updated = await updateProfile({ display_name: name });
+    updateUser(updated);
+    setShowNameModal(false);
   }
 
   async function handleBookNameSave() {
