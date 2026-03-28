@@ -47,6 +47,17 @@ def _run_migrations(conn):
     is_postgres = "postgresql" in str(conn.engine.url)
     _add_column_if_missing(conn, "users", "preferences", "JSONB" if is_postgres else "TEXT")
 
+    # Fix: if preferences was previously added as TEXT on Postgres, convert to JSONB
+    if is_postgres:
+        from sqlalchemy import text
+        try:
+            conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN preferences TYPE JSONB USING preferences::jsonb"
+            ))
+            print("  Converted users.preferences to JSONB")
+        except Exception:
+            pass  # Already JSONB or doesn't exist yet
+
 
 async def init_db():
     """Create all tables on startup if they don't exist, then run migrations."""
