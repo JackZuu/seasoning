@@ -52,6 +52,8 @@ export default function SignupPage() {
               <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Email</label>
               <input
                 type="email"
+                name="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -63,6 +65,8 @@ export default function SignupPage() {
               <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Password</label>
               <input
                 type="password"
+                name="password"
+                autoComplete="new-password"
                 required
                 minLength={8}
                 value={password}

@@ -1,18 +1,36 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import secrets
+from datetime import datetime, timedelta, timezone
+
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import User
-from app.schemas import SignupRequest, LoginRequest, AuthResponse, UserOut
+from app.models import User, PasswordResetToken
+from app.schemas import (
+    SignupRequest, LoginRequest, AuthResponse, UserOut,
+    ForgotPasswordRequest, ForgotPasswordResponse,
+    ResetPasswordRequest, ResetPasswordResponse,
+)
 from app.auth import hash_password, verify_password, create_access_token, get_current_user
+from app.email import send_password_reset
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+RESET_TOKEN_EXPIRE_MINUTES = 30
+
+
+def _validate_password(password: str):
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
 
 @router.post("/signup", response_model=AuthResponse, status_code=201)
 async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)):
+    _validate_password(req.password)
     user = User(email=req.email, password_hash=hash_password(req.password))
     db.add(user)
     try:
@@ -41,3 +59,60 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)):
     return UserOut(id=current_user.id, email=current_user.email)
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(req: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Always returns success to avoid leaking whether an email exists."""
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalar_one_or_none()
+
+    if user:
+        # Delete any existing tokens for this user
+        await db.execute(
+            delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+        )
+
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+        db.add(PasswordResetToken(
+            user_id=user.id,
+            token_hash=hash_password(token),
+            expires_at=expires_at,
+        ))
+        await db.commit()
+
+        base_url = os.getenv("APP_URL", str(request.base_url).rstrip("/"))
+        reset_link = f"{base_url}/reset-password?token={token}&email={req.email}"
+        send_password_reset(req.email, reset_link)
+
+    return ForgotPasswordResponse(message="If that email exists, a reset link has been sent.")
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    _validate_password(req.new_password)
+
+    result = await db.execute(select(User).where(User.email == req.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    # Find a valid (non-expired) token for this user
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    reset_row = result.scalar_one_or_none()
+
+    if not reset_row or not verify_password(req.token, reset_row.token_hash):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    # Update password and delete the token
+    user.password_hash = hash_password(req.new_password)
+    await db.delete(reset_row)
+    await db.commit()
+
+    return ResetPasswordResponse(message="Password has been reset. You can now log in.")

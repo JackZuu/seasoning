@@ -51,6 +51,8 @@ export default function LoginPage() {
               <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Email</label>
               <input
                 type="email"
+                name="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -62,6 +64,8 @@ export default function LoginPage() {
               <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Password</label>
               <input
                 type="password"
+                name="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -89,7 +93,13 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p style={{ marginTop: 20, textAlign: "center", fontSize: 13, fontFamily: "system-ui, sans-serif", color: colors.muted }}>
+          <p style={{ marginTop: 16, textAlign: "center", fontSize: 13, fontFamily: "system-ui, sans-serif", color: colors.muted }}>
+            <Link to="/forgot-password" style={{ color: colors.green, textDecoration: "none", fontWeight: 500 }}>
+              Forgot password?
+            </Link>
+          </p>
+
+          <p style={{ marginTop: 12, textAlign: "center", fontSize: 13, fontFamily: "system-ui, sans-serif", color: colors.muted }}>
             No account?{" "}
             <Link to="/signup" style={{ color: colors.green, textDecoration: "none", fontWeight: 500 }}>
               Sign up

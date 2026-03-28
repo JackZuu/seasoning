@@ -23,6 +23,20 @@ class AuthResponse(BaseModel):
     token_type: str = "bearer"
     user: UserOut
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    token: str
+    new_password: str
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
 
 # ─── Recipe sub-models ────────────────────────────────────────────────────────
 
