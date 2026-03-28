@@ -61,6 +61,9 @@ class InstructionStep(BaseModel):
 class RecipeParseRequest(BaseModel):
     raw_text: str
 
+class RecipeURLParseRequest(BaseModel):
+    url: str
+
 class RecipeCreate(BaseModel):
     title: str
     servings: Optional[int] = None

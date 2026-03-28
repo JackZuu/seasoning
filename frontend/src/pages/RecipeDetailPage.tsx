@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
+import SaltShakerLogo from "../components/SaltShakerLogo";
 import { colors } from "../theme";
 import { getRecipe, convertRecipe, Recipe, Ingredient } from "../api/recipes";
 
@@ -113,9 +114,12 @@ export default function RecipeDetailPage() {
               >
                 ← All recipes
               </button>
-              <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: "0 0 8px 0", lineHeight: 1.2 }}>
-                {recipe.title}
-              </h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <SaltShakerLogo size={28} />
+                <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: 0, lineHeight: 1.2 }}>
+                  {recipe.title}
+                </h1>
+              </div>
               <div style={{ display: "flex", gap: 16, color: colors.muted, fontSize: 13, fontFamily: "system-ui, sans-serif" }}>
                 {recipe.servings && <span>Serves {recipe.servings}</span>}
                 <span>Added {date}</span>

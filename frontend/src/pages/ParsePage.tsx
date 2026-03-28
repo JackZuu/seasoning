@@ -1,28 +1,82 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
+import NotRecipePopup from "../components/NotRecipePopup";
 import { colors } from "../theme";
-import { parseRecipe } from "../api/recipes";
+import { parseRecipe, parseRecipeFromImage, parseRecipeFromURL } from "../api/recipes";
+
+type Tab = "text" | "image" | "url";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "text", label: "Paste Text" },
+  { key: "image", label: "Upload Image" },
+  { key: "url", label: "Website URL" },
+];
 
 export default function ParsePage() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [activeTab, setActiveTab] = useState<Tab>("text");
   const [rawText, setRawText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("");
   const [error, setError] = useState("");
+  const [showNotRecipe, setShowNotRecipe] = useState(false);
+
+  function addFiles(newFiles: FileList | null) {
+    if (!newFiles) return;
+    const added = Array.from(newFiles).filter(f => f.type.startsWith("image/"));
+    setFiles(prev => [...prev, ...added].slice(0, 5));
+  }
+
+  function removeFile(index: number) {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  }
+
+  const canSubmit =
+    (activeTab === "text" && rawText.trim().length > 0) ||
+    (activeTab === "image" && files.length > 0) ||
+    (activeTab === "url" && url.trim().length > 0);
 
   async function handleParse() {
-    if (!rawText.trim()) return;
+    if (!canSubmit) return;
     setError("");
     setLoading(true);
+
     try {
-      const recipe = await parseRecipe(rawText);
+      let recipe;
+
+      if (activeTab === "text") {
+        setLoadingLabel("Parsing recipe with AI...");
+        recipe = await parseRecipe(rawText);
+      } else if (activeTab === "image") {
+        setLoadingLabel("Extracting recipe from image...");
+        recipe = await parseRecipeFromImage(files);
+      } else {
+        setLoadingLabel("Fetching recipe from website...");
+        recipe = await parseRecipeFromURL(url);
+      }
+
       navigate(`/recipes/${recipe.id}`);
     } catch (e: any) {
-      setError(e.message);
+      if (e.message === "not_a_recipe") {
+        setShowNotRecipe(true);
+      } else {
+        setError(e.message);
+      }
     } finally {
       setLoading(false);
+      setLoadingLabel("");
     }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    addFiles(e.dataTransfer.files);
   }
 
   return (
@@ -35,37 +89,180 @@ export default function ParsePage() {
             Add a Recipe
           </h2>
           <p style={{ color: colors.muted, fontSize: 14, fontFamily: "system-ui, sans-serif" }}>
-            Paste any recipe text below — from a website, a book, or your own notes. AI will extract and structure it for you.
+            Paste text, upload a photo, or grab one from a website.
           </p>
         </div>
 
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 0, borderBottom: `2px solid ${colors.border}` }}>
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => { setActiveTab(tab.key); setError(""); }}
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom: activeTab === tab.key ? `2px solid ${colors.green}` : "2px solid transparent",
+                padding: "10px 20px",
+                fontSize: 14,
+                fontFamily: "system-ui, sans-serif",
+                fontWeight: activeTab === tab.key ? 600 : 400,
+                color: activeTab === tab.key ? colors.green : colors.muted,
+                cursor: "pointer",
+                marginBottom: -2,
+                transition: "color 0.15s, border-color 0.15s",
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
         <div style={{
           background: colors.white,
           border: `1px solid ${colors.border}`,
           borderRadius: 12,
-          padding: "4px",
+          padding: 4,
           flex: 1,
+          minHeight: 300,
+          display: "flex",
+          flexDirection: "column",
         }}>
-          <textarea
-            value={rawText}
-            onChange={e => setRawText(e.target.value)}
-            disabled={loading}
-            placeholder={`Paste your recipe here...\n\nExample:\nChocolate Chip Cookies\nMakes 24 cookies\n\nIngredients:\n2 cups all-purpose flour\n1 tsp baking soda\n...`}
-            style={{
-              width: "100%",
-              minHeight: 360,
-              padding: "16px",
-              border: "none",
-              outline: "none",
-              resize: "vertical",
-              fontSize: 14,
-              fontFamily: "system-ui, sans-serif",
-              lineHeight: 1.7,
-              color: colors.text,
-              background: "transparent",
-              boxSizing: "border-box",
-            }}
-          />
+          {/* TEXT TAB */}
+          {activeTab === "text" && (
+            <textarea
+              value={rawText}
+              onChange={e => setRawText(e.target.value)}
+              disabled={loading}
+              placeholder={`Paste your recipe here...\n\nExample:\nChocolate Chip Cookies\nMakes 24 cookies\n\nIngredients:\n2 cups all-purpose flour\n1 tsp baking soda\n...`}
+              style={{
+                width: "100%",
+                flex: 1,
+                minHeight: 300,
+                padding: 16,
+                border: "none",
+                outline: "none",
+                resize: "vertical",
+                fontSize: 14,
+                fontFamily: "system-ui, sans-serif",
+                lineHeight: 1.7,
+                color: colors.text,
+                background: "transparent",
+                boxSizing: "border-box",
+              }}
+            />
+          )}
+
+          {/* IMAGE TAB */}
+          {activeTab === "image" && (
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={e => e.preventDefault()}
+                style={{
+                  border: `2px dashed ${colors.border}`,
+                  borderRadius: 10,
+                  padding: "40px 20px",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  transition: "border-color 0.15s",
+                  flex: files.length === 0 ? 1 : undefined,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = colors.green)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = colors.border)}
+              >
+                <div style={{ fontSize: 32 }}>📷</div>
+                <p style={{ fontSize: 14, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>
+                  Drag photos here or click to browse
+                </p>
+                <p style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif" }}>
+                  Up to 5 images (JPEG, PNG, WebP)
+                </p>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={e => addFiles(e.target.files)}
+              />
+
+              {files.length > 0 && (
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {files.map((f, i) => (
+                    <div key={i} style={{ position: "relative", width: 80, height: 80 }}>
+                      <img
+                        src={URL.createObjectURL(f)}
+                        alt={f.name}
+                        style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8, border: `1px solid ${colors.border}` }}
+                      />
+                      <button
+                        onClick={() => removeFile(i)}
+                        style={{
+                          position: "absolute",
+                          top: -6,
+                          right: -6,
+                          width: 20,
+                          height: 20,
+                          borderRadius: "50%",
+                          background: colors.error,
+                          color: colors.white,
+                          border: "none",
+                          fontSize: 12,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* URL TAB */}
+          {activeTab === "url" && (
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+              <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>
+                Recipe URL
+              </label>
+              <input
+                type="url"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                disabled={loading}
+                placeholder="https://www.bbcgoodfood.com/recipes/chilli-con-carne-recipe"
+                style={{
+                  padding: "12px 14px",
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 8,
+                  fontSize: 15,
+                  fontFamily: "system-ui, sans-serif",
+                  outline: "none",
+                  color: colors.text,
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              />
+              <p style={{ fontSize: 13, color: colors.muted, fontFamily: "system-ui, sans-serif", lineHeight: 1.5 }}>
+                Paste a link to any recipe page. We'll extract the ingredients and method automatically.
+              </p>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -75,7 +272,7 @@ export default function ParsePage() {
         )}
 
         {loading ? (
-          <LoadingSpinner label="Parsing recipe with AI..." />
+          <LoadingSpinner label={loadingLabel} />
         ) : (
           <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
             <button
@@ -95,9 +292,9 @@ export default function ParsePage() {
             </button>
             <button
               onClick={handleParse}
-              disabled={!rawText.trim()}
+              disabled={!canSubmit}
               style={{
-                background: rawText.trim() ? colors.green : colors.muted,
+                background: canSubmit ? colors.green : colors.muted,
                 color: colors.white,
                 border: "none",
                 borderRadius: 8,
@@ -105,14 +302,21 @@ export default function ParsePage() {
                 fontSize: 14,
                 fontFamily: "system-ui, sans-serif",
                 fontWeight: 600,
-                cursor: rawText.trim() ? "pointer" : "not-allowed",
+                cursor: canSubmit ? "pointer" : "not-allowed",
               }}
             >
-              Parse Recipe
+              {activeTab === "url" ? "Fetch Recipe" : "Parse Recipe"}
             </button>
           </div>
         )}
       </div>
+
+      {showNotRecipe && (
+        <NotRecipePopup
+          onClose={() => setShowNotRecipe(false)}
+          onSwitchToText={() => { setShowNotRecipe(false); setActiveTab("text"); }}
+        />
+      )}
     </div>
   );
 }

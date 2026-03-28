@@ -1,6 +1,7 @@
 import asyncio
+import base64
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import ValidationError
@@ -10,34 +11,26 @@ from app.models import Recipe
 from app.schemas import (
     RecipeParseRequest, RecipeCreate, RecipeResponse, RecipeListItem,
     ConvertRequest, ConvertResponse, Ingredient, InstructionStep,
+    RecipeURLParseRequest,
 )
 from app.auth import get_current_user
 from app.models import User
-from app.openai_module import chat_completion
-from app.prompts import RECIPE_PARSE_SYSTEM_PROMPT
+from app.openai_module import chat_completion, vision_completion
+from app.prompts import RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT
 from app.conversions import convert_ingredients
+from app.scraper import scrape_recipe_url
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
+MAX_IMAGES = 5
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _parse_recipe_text(raw_text: str) -> dict:
-    """Synchronous helper: call OpenAI and extract recipe JSON."""
-    result = chat_completion(
-        messages=[
-            {"role": "system", "content": RECIPE_PARSE_SYSTEM_PROMPT},
-            {"role": "user", "content": raw_text},
-        ],
-        model="gpt-4o-mini",
-        temperature=0.2,
-    )
-
-    if "error" in result and "content" not in result:
-        raise ValueError(result["error"])
-
-    content = result.get("content", "")
-
+def _extract_json(content: str) -> dict:
+    """Extract a JSON object from an LLM response, stripping markdown fences."""
     # Strip markdown code fences if present
     if "```json" in content:
         start = content.find("```json") + 7
@@ -65,6 +58,23 @@ def _parse_recipe_text(raw_text: str) -> dict:
     return data
 
 
+def _parse_recipe_text(raw_text: str) -> dict:
+    """Synchronous helper: call OpenAI and extract recipe JSON."""
+    result = chat_completion(
+        messages=[
+            {"role": "system", "content": RECIPE_PARSE_SYSTEM_PROMPT},
+            {"role": "user", "content": raw_text},
+        ],
+        model="gpt-4o-mini",
+        temperature=0.2,
+    )
+
+    if "error" in result and "content" not in result:
+        raise ValueError(result["error"])
+
+    return _extract_json(result.get("content", ""))
+
+
 def _orm_to_response(recipe: Recipe) -> RecipeResponse:
     return RecipeResponse(
         id=recipe.id,
@@ -82,6 +92,26 @@ def _assert_ownership(recipe: Recipe | None, user_id: int):
         raise HTTPException(status_code=404, detail="Recipe not found")
 
 
+async def _save_recipe(data: dict, user_id: int, db: AsyncSession) -> Recipe:
+    """Validate parsed data and save to DB."""
+    try:
+        recipe_data = RecipeCreate(**data)
+    except (ValidationError, Exception) as e:
+        raise HTTPException(status_code=422, detail=f"Recipe format invalid: {str(e)}")
+
+    recipe = Recipe(
+        user_id=user_id,
+        title=recipe_data.title,
+        servings=recipe_data.servings,
+        ingredients=[ing.model_dump() for ing in recipe_data.ingredients],
+        instructions=[step.model_dump() for step in recipe_data.instructions],
+    )
+    db.add(recipe)
+    await db.commit()
+    await db.refresh(recipe)
+    return recipe
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/parse", response_model=RecipeResponse, status_code=201)
@@ -95,21 +125,70 @@ async def parse_and_save(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    try:
-        recipe_data = RecipeCreate(**data)
-    except (ValidationError, Exception) as e:
-        raise HTTPException(status_code=422, detail=f"Recipe format invalid: {str(e)}")
+    recipe = await _save_recipe(data, current_user.id, db)
+    return _orm_to_response(recipe)
 
-    recipe = Recipe(
-        user_id=current_user.id,
-        title=recipe_data.title,
-        servings=recipe_data.servings,
-        ingredients=[ing.model_dump() for ing in recipe_data.ingredients],
-        instructions=[step.model_dump() for step in recipe_data.instructions],
-    )
-    db.add(recipe)
-    await db.commit()
-    await db.refresh(recipe)
+
+@router.post("/parse-image", response_model=RecipeResponse, status_code=201)
+async def parse_image_and_save(
+    images: list[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if len(images) > MAX_IMAGES:
+        raise HTTPException(status_code=400, detail=f"Maximum {MAX_IMAGES} images allowed")
+
+    image_data_list: list[tuple[str, str]] = []
+    for img in images:
+        content_type = img.content_type or "image/jpeg"
+        if content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported image type: {content_type}")
+
+        raw = await img.read()
+        if len(raw) > MAX_IMAGE_SIZE:
+            raise HTTPException(status_code=400, detail="Each image must be under 10 MB")
+
+        b64 = base64.b64encode(raw).decode()
+        image_data_list.append((b64, content_type))
+
+    def _do_vision():
+        result = vision_completion(RECIPE_IMAGE_SYSTEM_PROMPT, image_data_list)
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_vision)
+    except ValueError as e:
+        detail = str(e)
+        if "not a recipe" in detail.lower():
+            raise HTTPException(status_code=422, detail="not_a_recipe")
+        raise HTTPException(status_code=422, detail=detail)
+
+    recipe = await _save_recipe(data, current_user.id, db)
+    return _orm_to_response(recipe)
+
+
+@router.post("/parse-url", response_model=RecipeResponse, status_code=201)
+async def parse_url_and_save(
+    req: RecipeURLParseRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    def _do_scrape():
+        result = scrape_recipe_url(req.url)
+        # scrape_recipe_url returns the raw OpenAI result dict with "content"
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_scrape)
+    except ValueError as e:
+        detail = str(e)
+        if "not a recipe" in detail.lower():
+            raise HTTPException(status_code=422, detail="not_a_recipe")
+        raise HTTPException(status_code=422, detail=detail)
+
+    recipe = await _save_recipe(data, current_user.id, db)
     return _orm_to_response(recipe)
 
 

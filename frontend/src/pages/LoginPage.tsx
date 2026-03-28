@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { login } from "../api/auth";
+import SaltShakerLogo from "../components/SaltShakerLogo";
 
 export default function LoginPage() {
   const { login: setAuth } = useAuth();
@@ -30,6 +31,9 @@ export default function LoginPage() {
   return (
     <div style={{ minHeight: "100vh", background: colors.cream, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: 8 }}>
+          <SaltShakerLogo size={52} color={colors.green} />
+        </div>
         <h1 style={{ fontFamily: "Georgia, serif", color: colors.green, textAlign: "center", marginBottom: 8, fontSize: 28 }}>
           Seasoning
         </h1>

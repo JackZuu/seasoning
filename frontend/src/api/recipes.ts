@@ -66,6 +66,29 @@ export async function deleteRecipe(id: number): Promise<void> {
   }
 }
 
+export async function parseRecipeFromImage(files: File[]): Promise<Recipe> {
+  const formData = new FormData();
+  files.forEach(f => formData.append("images", f));
+
+  const res = await apiFetch("/api/recipes/parse-image", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Failed to parse image");
+  return data;
+}
+
+export async function parseRecipeFromURL(url: string): Promise<Recipe> {
+  const res = await apiFetch("/api/recipes/parse-url", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Failed to parse URL");
+  return data;
+}
+
 export async function convertRecipe(
   id: number,
   targetSystem: "us_customary" | "metric"

@@ -10,3 +10,6 @@ python-jose[cryptography]
 python-multipart
 email-validator
 resend
+recipe-scrapers
+httpx
+beautifulsoup4

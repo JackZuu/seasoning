@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { colors } from "../theme";
 import { resetPassword } from "../api/auth";
+import SaltShakerLogo from "../components/SaltShakerLogo";
 
 export default function ResetPasswordPage() {
   const [params] = useSearchParams();
@@ -50,6 +51,9 @@ export default function ResetPasswordPage() {
   return (
     <div style={{ minHeight: "100vh", background: colors.cream, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ textAlign: "center", marginBottom: 8 }}>
+          <SaltShakerLogo size={52} color={colors.green} />
+        </div>
         <h1 style={{ fontFamily: "Georgia, serif", color: colors.green, textAlign: "center", marginBottom: 8, fontSize: 28 }}>
           Seasoning
         </h1>
