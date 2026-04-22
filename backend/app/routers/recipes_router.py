@@ -59,6 +59,9 @@ def _extract_json(content: str) -> dict:
     except json.JSONDecodeError as e:
         raise ValueError(f"AI returned invalid JSON: {e}")
 
+    if not isinstance(data, dict):
+        raise ValueError("AI returned JSON but not an object")
+
     if "error" in data:
         raise ValueError(data["error"])
 
@@ -419,11 +422,39 @@ async def transform_recipe(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    return TransformResponse(
-        ingredients=[Ingredient(**i) for i in data.get("ingredients", [])],
-        instructions=[InstructionStep(**s) for s in data.get("instructions", [])],
-        reasoning=data.get("reasoning", {}),
-    )
+    # Normalise ingredients: coerce unit_system to the allowed literal, drop unknown extras
+    raw_ingredients = data.get("ingredients") or []
+    for ing in raw_ingredients:
+        if not isinstance(ing, dict):
+            continue
+        us = (ing.get("unit_system") or "").strip().lower()
+        if us not in ("us_customary", "metric"):
+            ing["unit_system"] = "metric" if us in ("metric", "si") else "us_customary"
+
+    # Normalise reasoning: must be dict[str, str]. Stringify nested values defensively.
+    raw_reasoning = data.get("reasoning") or {}
+    if not isinstance(raw_reasoning, dict):
+        raw_reasoning = {}
+    reasoning: dict[str, str] = {}
+    for k, v in raw_reasoning.items():
+        key = str(k)
+        if isinstance(v, str):
+            reasoning[key] = v
+        elif isinstance(v, dict):
+            reasoning[key] = " ".join(f"{sk}: {sv}" for sk, sv in v.items())
+        else:
+            reasoning[key] = str(v)
+
+    try:
+        return TransformResponse(
+            ingredients=[Ingredient(**i) for i in raw_ingredients if isinstance(i, dict)],
+            instructions=[InstructionStep(**s) for s in (data.get("instructions") or []) if isinstance(s, dict)],
+            reasoning=reasoning,
+        )
+    except ValidationError as e:
+        print(f"Transform response validation failed. Raw data: {data}")
+        print(f"Validation error: {e}")
+        raise HTTPException(status_code=422, detail="AI returned a recipe in an unexpected format. Please try again.")
 
 
 @router.post("/{recipe_id}/substitute", response_model=SubstitutionResponse)

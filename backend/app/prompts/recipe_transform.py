@@ -10,7 +10,7 @@ Return ONLY a strictly valid JSON object with this shape:
     {
       "quantity": number_or_null,
       "unit": "string_or_null",
-      "unit_system": "us_customary_or_metric",
+      "unit_system": "us_customary" OR "metric",
       "item": "string",
       "preparation": "string",
       "notes": "string"
@@ -29,8 +29,11 @@ Return ONLY a strictly valid JSON object with this shape:
   }
 }
 
-The "reasoning" object should have one entry per changed ingredient, mapping
-"original → replacement" to a short explanation. If nothing changed, reasoning should be {}.
+"unit_system" MUST be exactly the string "us_customary" or the string "metric". No other value is allowed.
+
+The "reasoning" object maps one "original → replacement" string to a single plain-text explanation
+(also a string, never a nested object or array). One entry per changed ingredient. If nothing
+changed, reasoning should be {}.
 
 Transformation types:
 - veggie: Replace all meat/fish with vegetarian alternatives. Keep dairy and eggs.
