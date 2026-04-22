@@ -10,6 +10,7 @@ import {
   Recipe, Ingredient, TransformResponse, SubstitutionResponse, NutritionResponse, CostResponse,
 } from "../api/recipes";
 import { addRecipeToBasket } from "../api/basket";
+import { getFriendRecipe, copyRecipe } from "../api/friends";
 import { useAuth } from "../context/AuthContext";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -47,12 +48,13 @@ const DIETARY_OPTIONS = [
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substituting }: {
+function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substituting, readOnly }: {
   ing: Ingredient;
   scaleFactor: number;
   substitution?: SubstitutionResponse;
   onSubstitute: () => void;
   substituting: boolean;
+  readOnly?: boolean;
 }) {
   const scaledQty = ing.quantity !== null ? ing.quantity * scaleFactor : null;
 
@@ -86,18 +88,20 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
         {ing.preparation ? <span style={{ color: colors.muted }}>, {ing.preparation}</span> : null}
         {ing.notes ? <span style={{ color: colors.muted }}> ({ing.notes})</span> : null}
       </span>
-      <button
-        onClick={onSubstitute}
-        disabled={substituting}
-        title="Don't have this?"
-        style={{
-          background: "none", border: `1px solid ${colors.border}`, borderRadius: 6,
-          padding: "3px 8px", fontSize: 11, color: colors.muted, cursor: "pointer",
-          whiteSpace: "nowrap", flexShrink: 0,
-        }}
-      >
-        {substituting ? "..." : "Swap?"}
-      </button>
+      {!readOnly && (
+        <button
+          onClick={onSubstitute}
+          disabled={substituting}
+          title="Don't have this?"
+          style={{
+            background: "none", border: `1px solid ${colors.border}`, borderRadius: 6,
+            padding: "3px 8px", fontSize: 11, color: colors.muted, cursor: "pointer",
+            whiteSpace: "nowrap", flexShrink: 0,
+          }}
+        >
+          {substituting ? "..." : "Swap?"}
+        </button>
+      )}
     </li>
   );
 }
@@ -105,11 +109,15 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id, friendId, recipeId } = useParams<{ id: string; friendId: string; recipeId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const isFriendView = Boolean(friendId && recipeId);
+  const effectiveId = isFriendView ? recipeId : id;
+  const [savingCopy, setSavingCopy] = useState(false);
 
   // Core state
   const [recipe, setRecipe] = useState<Recipe | null>(null);
@@ -160,8 +168,11 @@ export default function RecipeDetailPage() {
   // ─── Load recipe ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!id) return;
-    getRecipe(parseInt(id))
+    if (!effectiveId) return;
+    const loader = isFriendView && friendId
+      ? getFriendRecipe(parseInt(friendId), parseInt(effectiveId))
+      : getRecipe(parseInt(effectiveId));
+    loader
       .then(r => {
         setRecipe(r);
         setDisplayIngredients(r.ingredients);
@@ -172,7 +183,20 @@ export default function RecipeDetailPage() {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [effectiveId, isFriendView, friendId]);
+
+  async function handleCopyToMine() {
+    if (!recipe) return;
+    setSavingCopy(true);
+    try {
+      const copy = await copyRecipe(recipe.id);
+      navigate(`/recipes/${copy.id}`);
+    } catch (e: any) {
+      alert("Failed to save: " + e.message);
+    } finally {
+      setSavingCopy(false);
+    }
+  }
 
   // ─── Servings scaling ────────────────────────────────────────────────────
 
@@ -367,20 +391,38 @@ export default function RecipeDetailPage() {
             {/* Title & meta */}
             <div>
               <button
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate(isFriendView ? "/friends" : "/dashboard")}
                 style={{ background: "none", border: "none", color: colors.muted, fontSize: 13, fontFamily: "system-ui, sans-serif", cursor: "pointer", padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
               >
-                ← All recipes
+                ← {isFriendView ? "Back to friends" : "All recipes"}
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <SaltShakerLogo size={28} />
-                <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: 0, lineHeight: 1.2, flex: 1 }}>
                   {recipe.title}
                 </h1>
+                {isFriendView && (
+                  <button
+                    onClick={handleCopyToMine}
+                    disabled={savingCopy}
+                    title="Save to my recipes"
+                    style={{
+                      background: colors.green, color: colors.white, border: "none",
+                      borderRadius: 20, padding: "8px 16px", fontSize: 14, fontWeight: 600,
+                      cursor: savingCopy ? "default" : "pointer",
+                      display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                      fontFamily: "system-ui, sans-serif",
+                      opacity: savingCopy ? 0.7 : 1,
+                    }}
+                  >
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+                    {savingCopy ? "Saving..." : "Save to mine"}
+                  </button>
+                )}
               </div>
               <div style={{ display: "flex", gap: 16, color: colors.muted, fontSize: 13, fontFamily: "system-ui, sans-serif", alignItems: "center", flexWrap: "wrap" }}>
                 <span>Added {date}</span>
-                {!recipe.image_url && (
+                {!isFriendView && !recipe.image_url && (
                   <>
                     <button
                       onClick={() => imageInputRef.current?.click()}
@@ -425,26 +467,30 @@ export default function RecipeDetailPage() {
                 >Reset</button>
               )}
 
-              <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                {converting && <span style={{ fontSize: 12, color: colors.muted }}>Converting...</span>}
-                <select
-                  value={unitSystem}
-                  onChange={e => handleUnitChange(e.target.value as "us_customary" | "metric")}
-                  disabled={converting}
-                  style={{
-                    fontSize: 13, fontFamily: "system-ui, sans-serif",
-                    border: `1px solid ${colors.border}`, borderRadius: 6,
-                    padding: "5px 10px", background: colors.white, color: colors.text,
-                    outline: "none", cursor: "pointer",
-                  }}
-                >
-                  <option value="us_customary">US Customary</option>
-                  <option value="metric">Metric</option>
-                </select>
-              </div>
+              {!isFriendView && (
+                <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                  {converting && <span style={{ fontSize: 12, color: colors.muted }}>Converting...</span>}
+                  <select
+                    value={unitSystem}
+                    onChange={e => handleUnitChange(e.target.value as "us_customary" | "metric")}
+                    disabled={converting}
+                    style={{
+                      fontSize: 13, fontFamily: "system-ui, sans-serif",
+                      border: `1px solid ${colors.border}`, borderRadius: 6,
+                      padding: "5px 10px", background: colors.white, color: colors.text,
+                      outline: "none", cursor: "pointer",
+                    }}
+                  >
+                    <option value="us_customary">US Customary</option>
+                    <option value="metric">Metric</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* AI Transformation toggles */}
+            {!isFriendView && (
+            <>
             <div style={{
               display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
             }}>
@@ -538,6 +584,8 @@ export default function RecipeDetailPage() {
                 ))}
               </div>
             )}
+            </>
+            )}
 
             {/* Ingredients */}
             <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
@@ -553,6 +601,7 @@ export default function RecipeDetailPage() {
                     substitution={substitutions[ing.item]}
                     onSubstitute={() => handleSubstitute(ing.item)}
                     substituting={substitutingItem === ing.item}
+                    readOnly={isFriendView}
                   />
                 ))}
               </ul>
@@ -587,6 +636,7 @@ export default function RecipeDetailPage() {
               </ol>
             </div>
 
+            {!isFriendView && (<>
             {/* Nutrition */}
             <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
               <button
@@ -719,6 +769,7 @@ export default function RecipeDetailPage() {
                 }}
               />
             </div>
+            </>)}
 
           </div>
         )}

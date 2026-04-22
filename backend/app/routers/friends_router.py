@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import User, Friendship, Recipe
 from app.schemas import (
     FriendSearchResult, FriendshipOut, InviteOut,
-    RecipeListItem,
+    RecipeListItem, RecipeResponse, Ingredient, InstructionStep,
 )
 from app.auth import get_current_user
 from app.email import send_friend_invite_email, send_friend_accepted_email
@@ -153,24 +153,27 @@ async def list_friends(
     return friends
 
 
+async def _verify_friendship(current_user_id: int, friend_id: int, db: AsyncSession) -> None:
+    result = await db.execute(
+        select(Friendship).where(
+            Friendship.status == "accepted",
+            or_(
+                and_(Friendship.user_id == current_user_id, Friendship.friend_id == friend_id),
+                and_(Friendship.user_id == friend_id, Friendship.friend_id == current_user_id),
+            )
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Not friends with this user")
+
+
 @router.get("/{friend_id}/recipes", response_model=list[RecipeListItem])
 async def get_friend_recipes(
     friend_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify friendship
-    result = await db.execute(
-        select(Friendship).where(
-            Friendship.status == "accepted",
-            or_(
-                and_(Friendship.user_id == current_user.id, Friendship.friend_id == friend_id),
-                and_(Friendship.user_id == friend_id, Friendship.friend_id == current_user.id),
-            )
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Not friends with this user")
+    await _verify_friendship(current_user.id, friend_id, db)
 
     result = await db.execute(
         select(Recipe).where(Recipe.user_id == friend_id).order_by(Recipe.created_at.desc())
@@ -187,3 +190,29 @@ async def get_friend_recipes(
         )
         for r in recipes
     ]
+
+
+@router.get("/{friend_id}/recipes/{recipe_id}", response_model=RecipeResponse)
+async def get_friend_recipe(
+    friend_id: int,
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _verify_friendship(current_user.id, friend_id, db)
+
+    recipe = await db.get(Recipe, recipe_id)
+    if not recipe or recipe.user_id != friend_id:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    return RecipeResponse(
+        id=recipe.id,
+        user_id=recipe.user_id,
+        title=recipe.title,
+        servings=recipe.servings,
+        ingredients=[Ingredient(**i) for i in (recipe.ingredients or [])],
+        instructions=[InstructionStep(**s) for s in (recipe.instructions or [])],
+        image_url=recipe.image_url,
+        notes="",
+        created_at=recipe.created_at,
+    )

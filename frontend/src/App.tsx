@@ -26,6 +26,7 @@ export default function App() {
         <Route path="/recipes/:id" element={<PrivateRoute><RecipeDetailPage /></PrivateRoute>} />
         <Route path="/larder" element={<PrivateRoute><LarderPage /></PrivateRoute>} />
         <Route path="/friends" element={<PrivateRoute><FriendsPage /></PrivateRoute>} />
+        <Route path="/friends/:friendId/recipes/:recipeId" element={<PrivateRoute><RecipeDetailPage /></PrivateRoute>} />
         <Route path="/basket" element={<PrivateRoute><BasketPage /></PrivateRoute>} />
         <Route path="/preferences" element={<PrivateRoute><PreferencesPage /></PrivateRoute>} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

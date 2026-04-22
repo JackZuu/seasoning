@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import RecipeCard from "../components/RecipeCard";
+import RecipeToolbar, { applyRecipeFilters, SortKey } from "../components/RecipeToolbar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import NameModal from "../components/NameModal";
 import { colors } from "../theme";
@@ -18,6 +19,13 @@ export default function DashboardPage() {
   const [showNameModal, setShowNameModal] = useState(false);
   const [editingBookName, setEditingBookName] = useState(false);
   const [bookName, setBookName] = useState(user?.recipe_book_name || "Your Recipe Book");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>("newest");
+
+  const visibleRecipes = useMemo(
+    () => applyRecipeFilters(recipes, query, sort),
+    [recipes, query, sort],
+  );
 
   useEffect(() => {
     if (user && !user.display_name) {
@@ -133,15 +141,30 @@ export default function DashboardPage() {
         )}
 
         {!loading && recipes.length > 0 && (
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-            gap: 16,
-          }}>
-            {recipes.map(r => (
-              <RecipeCard key={r.id} recipe={r} onDelete={handleDelete} />
-            ))}
-          </div>
+          <>
+            <RecipeToolbar
+              query={query}
+              onQueryChange={setQuery}
+              sort={sort}
+              onSortChange={setSort}
+              placeholder="Search your recipes..."
+            />
+            {visibleRecipes.length === 0 ? (
+              <p style={{ color: colors.muted, fontSize: 14, textAlign: "center", padding: "32px 0" }}>
+                No recipes match "{query}".
+              </p>
+            ) : (
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                gap: 16,
+              }}>
+                {visibleRecipes.map(r => (
+                  <RecipeCard key={r.id} recipe={r} onDelete={handleDelete} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

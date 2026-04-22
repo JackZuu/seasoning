@@ -1,5 +1,5 @@
 import { apiFetch, safeJson } from "./client";
-import type { RecipeListItem } from "./recipes";
+import type { RecipeListItem, Recipe } from "./recipes";
 
 export interface FriendSearchResult {
   id: number;
@@ -55,6 +55,13 @@ export async function getFriendRecipes(friendId: number): Promise<RecipeListItem
   const res = await apiFetch(`/api/friends/${friendId}/recipes`);
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Failed to load recipes");
+  return data;
+}
+
+export async function getFriendRecipe(friendId: number, recipeId: number): Promise<Recipe> {
+  const res = await apiFetch(`/api/friends/${friendId}/recipes/${recipeId}`);
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Failed to load recipe");
   return data;
 }
 
