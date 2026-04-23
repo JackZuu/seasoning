@@ -1,6 +1,7 @@
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { colors } from "../theme";
+import { colors, fonts } from "../theme";
+import Wordmark from "./Wordmark";
 
 const NAV_ITEMS = [
   { path: "/dashboard", label: "Recipe Book" },
@@ -17,7 +18,7 @@ export default function Header() {
 
   function handleLogout() {
     logout();
-    navigate("/login");
+    navigate("/");
   }
 
   return (
@@ -25,19 +26,17 @@ export default function Header() {
       style={{
         background: colors.green,
         color: colors.white,
-        padding: "clamp(8px, 2vw, 12px) clamp(16px, 5vw, 40px)",
+        padding: "clamp(10px, 2vw, 14px) clamp(16px, 5vw, 40px)",
         boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: fonts.sans,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <Link
-          to="/dashboard"
+          to={user ? "/dashboard" : "/"}
           style={{ textDecoration: "none", color: colors.white, marginRight: "auto" }}
         >
-          <span style={{ fontSize: "clamp(16px, 3.5vw, 22px)", fontFamily: "Georgia, serif", fontWeight: "bold", letterSpacing: 1 }}>
-            Seasoning
-          </span>
+          <Wordmark layout="inline" iconSize={30} wordSize={22} variant="light" />
         </Link>
 
         {user && (
@@ -48,8 +47,8 @@ export default function Header() {
                 fontSize: 13,
                 background: colors.greenMid,
                 color: colors.white,
-                padding: "6px 14px",
-                borderRadius: 6,
+                padding: "7px 14px",
+                borderRadius: 8,
                 textDecoration: "none",
                 fontWeight: 600,
               }}
@@ -61,11 +60,12 @@ export default function Header() {
               style={{
                 background: "none",
                 border: "1px solid rgba(255,255,255,0.4)",
-                borderRadius: 6,
+                borderRadius: 8,
                 color: colors.white,
-                padding: "5px 12px",
+                padding: "6px 12px",
                 fontSize: 13,
                 cursor: "pointer",
+                fontFamily: fonts.sans,
               }}
             >
               Log out
@@ -76,7 +76,7 @@ export default function Header() {
 
       {user && (
         <nav style={{
-          display: "flex", gap: 0, marginTop: 8,
+          display: "flex", gap: 0, marginTop: 10,
           overflowX: "auto", WebkitOverflowScrolling: "touch",
         }}>
           {NAV_ITEMS.map(item => {
@@ -88,11 +88,11 @@ export default function Header() {
                 style={{
                   fontSize: 13,
                   color: colors.white,
-                  opacity: active ? 1 : 0.7,
+                  opacity: active ? 1 : 0.75,
                   textDecoration: "none",
                   padding: "8px 14px",
                   borderBottom: active ? "2px solid white" : "2px solid transparent",
-                  fontWeight: active ? 600 : 400,
+                  fontWeight: active ? 600 : 500,
                   whiteSpace: "nowrap",
                   transition: "opacity 0.15s",
                 }}

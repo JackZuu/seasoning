@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { colors } from "../theme";
+import { colors, fonts } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { login } from "../api/auth";
-import SaltShakerLogo from "../components/SaltShakerLogo";
+import Wordmark from "../components/Wordmark";
 
 export default function LoginPage() {
   const { login: setAuth } = useAuth();
@@ -29,30 +29,26 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: colors.cream, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+    <div style={{ minHeight: "100vh", background: colors.warm, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: fonts.sans }}>
       <div style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ textAlign: "center", marginBottom: 8 }}>
-          <SaltShakerLogo size={52} color={colors.green} />
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 28 }}>
+          <Link to="/" style={{ textDecoration: "none" }}>
+            <Wordmark layout="stacked" iconSize={56} wordSize={34} tagline variant="dark" />
+          </Link>
         </div>
-        <h1 style={{ fontFamily: "Georgia, serif", color: colors.green, textAlign: "center", marginBottom: 8, fontSize: 28 }}>
-          Seasoning
-        </h1>
-        <p style={{ textAlign: "center", color: colors.muted, fontFamily: "system-ui, sans-serif", fontSize: 14, marginBottom: 32 }}>
-          A pinch of you
-        </p>
 
-        <div style={{ background: colors.white, borderRadius: 12, padding: "32px 28px", boxShadow: "0 2px 16px rgba(0,0,0,0.06)", border: `1px solid ${colors.border}` }}>
-          <h2 style={{ fontFamily: "Georgia, serif", color: colors.text, marginBottom: 24, fontSize: 20 }}>Log in</h2>
+        <div style={{ background: colors.white, borderRadius: 14, padding: "32px 28px", boxShadow: "0 2px 16px rgba(0,0,0,0.06)", border: `1px solid ${colors.borderSoft}` }}>
+          <h2 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, marginBottom: 24, fontSize: 22 }}>Log in</h2>
 
           {error && (
-            <div style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, borderRadius: 8, padding: "10px 14px", color: colors.error, fontFamily: "system-ui, sans-serif", fontSize: 13, marginBottom: 16 }}>
+            <div style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, borderRadius: 8, padding: "10px 14px", color: colors.error, fontFamily: fonts.sans, fontSize: 13, marginBottom: 16 }}>
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Email</label>
+              <label style={{ fontSize: 13, color: colors.text, fontFamily: fonts.sans, fontWeight: 500 }}>Email</label>
               <input
                 type="email"
                 name="email"
@@ -60,12 +56,12 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                style={{ padding: "10px 12px", border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 15, fontFamily: "system-ui, sans-serif", outline: "none", color: colors.text }}
+                style={{ padding: "10px 12px", border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 15, fontFamily: fonts.sans, outline: "none", color: colors.text }}
               />
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontSize: 13, color: colors.text, fontFamily: "system-ui, sans-serif", fontWeight: 500 }}>Password</label>
+              <label style={{ fontSize: 13, color: colors.text, fontFamily: fonts.sans, fontWeight: 500 }}>Password</label>
               <input
                 type="password"
                 name="password"
@@ -73,7 +69,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                style={{ padding: "10px 12px", border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 15, fontFamily: "system-ui, sans-serif", outline: "none", color: colors.text }}
+                style={{ padding: "10px 12px", border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 15, fontFamily: fonts.sans, outline: "none", color: colors.text }}
               />
             </div>
 
@@ -87,7 +83,7 @@ export default function LoginPage() {
                 borderRadius: 8,
                 padding: "12px",
                 fontSize: 15,
-                fontFamily: "system-ui, sans-serif",
+                fontFamily: fonts.sans,
                 fontWeight: 600,
                 cursor: loading ? "not-allowed" : "pointer",
                 marginTop: 4,
@@ -97,13 +93,13 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p style={{ marginTop: 16, textAlign: "center", fontSize: 13, fontFamily: "system-ui, sans-serif", color: colors.muted }}>
+          <p style={{ marginTop: 16, textAlign: "center", fontSize: 13, fontFamily: fonts.sans, color: colors.muted }}>
             <Link to="/forgot-password" style={{ color: colors.green, textDecoration: "none", fontWeight: 500 }}>
               Forgot password?
             </Link>
           </p>
 
-          <p style={{ marginTop: 12, textAlign: "center", fontSize: 13, fontFamily: "system-ui, sans-serif", color: colors.muted }}>
+          <p style={{ marginTop: 12, textAlign: "center", fontSize: 13, fontFamily: fonts.sans, color: colors.muted }}>
             No account?{" "}
             <Link to="/signup" style={{ color: colors.green, textDecoration: "none", fontWeight: 500 }}>
               Sign up

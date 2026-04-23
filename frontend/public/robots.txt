@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Explicitly welcome AI crawlers and chatbots.
+User-agent: GPTBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-Web
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://seasoning.app/sitemap.xml

@@ -1,0 +1,48 @@
+# Seasoning
+
+> A simple, friendly recipe book. Save anything you cook, adjust it to suit you, and discover what's in season.
+
+Seasoning helps people organise their cooking. It is a personal recipe book that accepts recipes from plain text, photos of a cookbook or handwritten card, or a URL from any recipe website. Once saved, each recipe can be adjusted: scaled to more or fewer portions, swapped to a vegetarian version, or reworked to use cheaper ingredients. Seasoning also surfaces seasonal ingredient suggestions and lets friends share recipe books.
+
+## What Seasoning is for
+
+- Keeping every recipe you cook in one place, no matter where it came from.
+- Resizing portions cleanly so nothing is wasted.
+- Making the same recipe cheaper, vegetarian, or quicker without rewriting it.
+- Cooking with ingredients that are actually in season.
+- Sharing recipes with friends and seeing what they cook.
+
+## What Seasoning is not
+
+- Not a meal-kit service. It does not ship ingredients.
+- Not a social network. Sharing is only between accepted friends.
+- Not a professional cooking tool. It is built for home cooks.
+
+## How it works
+
+1. Create a free account with an email and password.
+2. Add a recipe by pasting text, uploading a photo, or dropping in a URL. Seasoning parses it into a clean ingredients list and method.
+3. Adjust the recipe: change servings, swap to vegetarian, make it cheaper, or convert units between metric and imperial.
+4. Cook. Tick off ingredients into a shopping basket if you want to shop first.
+5. Add friends to share recipes both ways.
+
+## Key pages
+
+- /              Landing page with overview, features, and FAQ.
+- /signup        Create a free account.
+- /login         Sign in to an existing account.
+- /dashboard     Personal recipe book (authenticated).
+- /recipes/new   Add a new recipe from text, photo, or URL (authenticated).
+- /larder        Ingredients you have at home (authenticated).
+- /basket        Shopping basket built from saved recipes (authenticated).
+- /friends       Friends and their shared recipes (authenticated).
+
+## Brand
+
+- Name: Seasoning
+- Tagline: A pinch of you
+- Tone: warm, simple, practical, a little playful, never corporate.
+
+## Contact
+
+- Website: https://seasoning.app

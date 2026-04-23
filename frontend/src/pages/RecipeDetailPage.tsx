@@ -397,7 +397,7 @@ export default function RecipeDetailPage() {
                 ← {isFriendView ? "Back to friends" : "All recipes"}
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <SaltShakerLogo size={28} />
+                <SaltShakerLogo size={28} color={colors.green} />
                 <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: 0, lineHeight: 1.2, flex: 1 }}>
                   {recipe.title}
                 </h1>

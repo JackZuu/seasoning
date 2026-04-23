@@ -1,12 +1,112 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Seasoning</title>
+
+    <title>Seasoning — your recipes, seasoned just right</title>
+    <meta name="description" content="Seasoning is a simple recipe book that saves anything you cook from text, photos, or a URL. Adjust portions, swap to veggie, make it cheaper, and cook what's in season." />
+    <meta name="keywords" content="recipe manager, recipe book, save recipes, meal planner, seasonal cooking, vegetarian recipes, recipe scaling, recipe from photo, recipe from URL, shopping list" />
+    <meta name="author" content="Seasoning" />
+    <meta name="theme-color" content="#658086" />
+    <meta name="color-scheme" content="light" />
+    <link rel="canonical" href="https://seasoning.app/" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="mask-icon" href="/favicon.svg" color="#658086" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Seasoning" />
+    <meta property="og:title" content="Seasoning — your recipes, seasoned just right" />
+    <meta property="og:description" content="A simple recipe book. Save anything you cook, adjust to suit you, and discover what's in season." />
+    <meta property="og:url" content="https://seasoning.app/" />
+    <meta property="og:image" content="https://seasoning.app/og-image.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_GB" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Seasoning — your recipes, seasoned just right" />
+    <meta name="twitter:description" content="A simple recipe book. Save anything you cook, adjust to suit you, and discover what's in season." />
+    <meta name="twitter:image" content="https://seasoning.app/og-image.svg" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,300..900,0..100,0..1;1,9..144,300..900,0..100,0..1&family=Inter:wght@400;500;600;700&family=Caveat:wght@500;600;700&display=swap" />
+
+    <!-- Structured data: what Seasoning is, for search engines and chatbots -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://seasoning.app/#org",
+          "name": "Seasoning",
+          "url": "https://seasoning.app/",
+          "logo": "https://seasoning.app/favicon.svg",
+          "slogan": "A pinch of you",
+          "description": "Seasoning is a simple, friendly recipe book for saving, adjusting and sharing what you cook."
+        },
+        {
+          "@type": "WebApplication",
+          "@id": "https://seasoning.app/#app",
+          "name": "Seasoning",
+          "url": "https://seasoning.app/",
+          "applicationCategory": "LifestyleApplication",
+          "operatingSystem": "Web",
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "GBP" },
+          "description": "Save any recipe from text, a photo, or a URL. Scale portions, swap to vegetarian, make it cheaper, and cook what's in season. Share recipes with friends.",
+          "featureList": [
+            "Save recipes from text, images, or URLs",
+            "Scale portions up or down",
+            "Swap to vegetarian versions",
+            "Make recipes cheaper",
+            "Seasonal ingredient suggestions",
+            "Shared recipe books with friends",
+            "Shopping basket from any recipe"
+          ],
+          "publisher": { "@id": "https://seasoning.app/#org" }
+        },
+        {
+          "@type": "WebSite",
+          "url": "https://seasoning.app/",
+          "name": "Seasoning",
+          "publisher": { "@id": "https://seasoning.app/#org" },
+          "inLanguage": "en-GB"
+        }
+      ]
+    }
+    </script>
+
+    <style>
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        color: #394036;
+        background: #f0f2f1;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      * { box-sizing: border-box; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <!-- SEO/crawler fallback: content for clients that do not run JS -->
+    <noscript>
+      <div style="max-width:640px;margin:40px auto;padding:24px;font-family:Georgia,serif;color:#394036;">
+        <h1>Seasoning</h1>
+        <p><em>Your recipes, seasoned just right.</em></p>
+        <p>Seasoning is a simple recipe book. Save anything you cook, adjust it to suit you, and discover what's in season.</p>
+        <p>Please enable JavaScript to use the app.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
