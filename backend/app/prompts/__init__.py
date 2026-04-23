@@ -5,5 +5,6 @@ from app.prompts.recipe_transform import RECIPE_TRANSFORM_SYSTEM_PROMPT
 from app.prompts.ingredient_substitute import INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT
 from app.prompts.nutrition import NUTRITION_SYSTEM_PROMPT
 from app.prompts.cost_estimate import COST_ESTIMATE_SYSTEM_PROMPT
+from app.prompts.impact_estimate import IMPACT_ESTIMATE_SYSTEM_PROMPT
 from app.prompts.larder_recipes import LARDER_RECIPES_SYSTEM_PROMPT
 from app.prompts.recipe_generate import RECIPE_GENERATE_SYSTEM_PROMPT

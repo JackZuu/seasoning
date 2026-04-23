@@ -52,7 +52,7 @@ export function UnitsIcon(p: IconProps) {
   );
 }
 
-/** Needle and thread — tailor */
+/** Needle and thread — tailor (kept for backwards compatibility; Season uses SaltShakerLogo) */
 export function TailorIcon(p: IconProps) {
   return (
     <Svg {...p}>
@@ -61,6 +61,18 @@ export function TailorIcon(p: IconProps) {
       <path d="M7 7 L20 20" />
       <path d="M18 20 L21 20 L21 17" />
       <path d="M3.5 7.5 Q2 10 4 12 Q6 14 4 17" />
+    </Svg>
+  );
+}
+
+/** Sprout / seedling — environmental impact */
+export function ImpactIcon(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 20 L12 12" />
+      <path d="M12 12 Q6 12 5 6 Q11 6 12 12 Z" />
+      <path d="M12 12 Q18 12 19 6 Q13 6 12 12 Z" />
+      <path d="M7 20 L17 20" />
     </Svg>
   );
 }

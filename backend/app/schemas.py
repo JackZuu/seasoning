@@ -170,6 +170,16 @@ class CostResponse(BaseModel):
     breakdown: list[dict]
 
 
+# ─── Environmental Impact ────────────────────────────────────────────────────
+
+class ImpactResponse(BaseModel):
+    kg_co2e_per_serving: float
+    kg_co2e_total: float
+    rating: Literal["low", "medium", "high"]
+    summary: str
+    breakdown: list[dict]
+
+
 # ─── Larder ───────────────────────────────────────────────────────────────────
 
 class LarderItemCreate(BaseModel):
@@ -226,3 +236,7 @@ class ShoppingListItemOut(BaseModel):
 class AddRecipeToBasketRequest(BaseModel):
     recipe_id: int
     ingredients: list[Ingredient]
+
+class AddRecipeToBasketResponse(BaseModel):
+    added: int
+    skipped_in_larder: list[str] = []

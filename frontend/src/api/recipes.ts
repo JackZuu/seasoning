@@ -72,6 +72,20 @@ export interface CostResponse {
   breakdown: { item: string; estimated_cost: number }[];
 }
 
+export interface ImpactBreakdownItem {
+  item: string;
+  kg_co2e: number;
+  note?: string;
+}
+
+export interface ImpactResponse {
+  kg_co2e_per_serving: number;
+  kg_co2e_total: number;
+  rating: "low" | "medium" | "high";
+  summary: string;
+  breakdown: ImpactBreakdownItem[];
+}
+
 // ─── Parse ───────────────────────────────────────────────────────────────────
 
 export async function parseRecipe(rawText: string): Promise<Recipe> {
@@ -229,5 +243,14 @@ export async function estimateCost(id: number): Promise<CostResponse> {
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not estimate cost");
+  return data;
+}
+
+export async function estimateImpact(id: number): Promise<ImpactResponse> {
+  const res = await apiFetch(`/api/recipes/${id}/impact`, {
+    method: "POST",
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Could not estimate impact");
   return data;
 }

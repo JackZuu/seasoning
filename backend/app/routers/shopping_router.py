@@ -3,8 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
 
 from app.database import get_db
-from app.models import User, ShoppingListItem
-from app.schemas import ShoppingListItemCreate, ShoppingListItemOut, AddRecipeToBasketRequest
+from app.models import User, ShoppingListItem, LarderItem
+from app.schemas import (
+    ShoppingListItemCreate, ShoppingListItemOut,
+    AddRecipeToBasketRequest, AddRecipeToBasketResponse,
+)
 from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/basket", tags=["basket"])
@@ -51,14 +54,45 @@ async def add_to_basket(
     )
 
 
-@router.post("/from-recipe", status_code=201)
+def _in_larder(ingredient_item: str, larder_names: list[str]) -> bool:
+    """
+    Match ingredient against larder. Case-insensitive, word-boundary-aware.
+    'oregano' in larder matches 'oregano' or 'fresh oregano' or 'oregano leaves'.
+    """
+    ing = ingredient_item.lower().strip()
+    padded = f" {ing} "
+    for name in larder_names:
+        if not name:
+            continue
+        if name == ing:
+            return True
+        if f" {name} " in padded:
+            return True
+        if padded.startswith(f" {name} ") or padded.endswith(f" {name} "):
+            return True
+    return False
+
+
+@router.post("/from-recipe", status_code=201, response_model=AddRecipeToBasketResponse)
 async def add_recipe_to_basket(
     req: AddRecipeToBasketRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add all ingredients from a recipe to the basket."""
+    """Add a recipe's ingredients to the basket, skipping anything already in the larder."""
+    larder_result = await db.execute(
+        select(LarderItem).where(LarderItem.user_id == current_user.id)
+    )
+    larder_names = [li.item.lower().strip() for li in larder_result.scalars().all()]
+
+    added = 0
+    skipped: list[str] = []
+
     for ing in req.ingredients:
+        if larder_names and _in_larder(ing.item, larder_names):
+            skipped.append(ing.item)
+            continue
+
         qty_str = ""
         if ing.quantity is not None:
             qty_str = str(ing.quantity)
@@ -73,9 +107,10 @@ async def add_recipe_to_basket(
             recipe_id=req.recipe_id,
         )
         db.add(item)
+        added += 1
 
     await db.commit()
-    return {"message": "Added to basket"}
+    return AddRecipeToBasketResponse(added=added, skipped_in_larder=skipped)
 
 
 @router.patch("/{item_id}/check")

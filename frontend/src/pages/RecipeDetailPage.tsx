@@ -6,14 +6,15 @@ import SaltShakerLogo from "../components/SaltShakerLogo";
 import Tooltip from "../components/Tooltip";
 import Popover from "../components/Popover";
 import {
-  ServingsIcon, UnitsIcon, TailorIcon, NutritionIcon, CostIcon, BasketIcon,
+  ServingsIcon, UnitsIcon, NutritionIcon, CostIcon, ImpactIcon, BasketIcon,
   ChevronIcon, CloseIcon, MinusIcon, PlusIcon,
 } from "../components/RecipeIcons";
 import { colors, fonts } from "../theme";
 import {
   getRecipe, convertRecipe, updateNotes, uploadRecipeImage,
-  transformRecipe, substituteIngredient, getNutrition, estimateCost,
-  Recipe, Ingredient, TransformResponse, SubstitutionResponse, NutritionResponse, CostResponse,
+  transformRecipe, substituteIngredient, getNutrition, estimateCost, estimateImpact,
+  Recipe, Ingredient, TransformResponse, SubstitutionResponse,
+  NutritionResponse, CostResponse, ImpactResponse,
 } from "../api/recipes";
 import { addRecipeToBasket } from "../api/basket";
 import { getFriendRecipe, copyRecipe } from "../api/friends";
@@ -37,15 +38,27 @@ function formatQuantity(q: number | null): string {
   return parseFloat(q.toFixed(2)).toString();
 }
 
-const TRANSFORMATIONS = [
-  { key: "personalise", label: "Personalise", tooltip: "Adapt this recipe to your saved preferences" },
-  { key: "veggie",      label: "Make veggie",  tooltip: "Swap meat and fish for vegetarian alternatives" },
-  { key: "vegan",       label: "Make vegan",   tooltip: "Replace all animal products" },
-  { key: "seasonal",    label: "Make seasonal", tooltip: "Use ingredients that are in season right now" },
-  { key: "eco",         label: "Reduce impact", tooltip: "Lower the environmental footprint" },
-  { key: "cheaper",     label: "Make cheaper", tooltip: "Substitute with lower-cost ingredients" },
+interface Transformation { key: string; label: string; tooltip: string; }
+
+const TRANSFORMATIONS: Transformation[] = [
+  { key: "personalise", label: "Personalise",    tooltip: "Adapt this recipe to your saved preferences" },
+  { key: "veggie",      label: "Make veggie",    tooltip: "Swap meat and fish for vegetarian alternatives" },
+  { key: "vegan",       label: "Make vegan",     tooltip: "Replace all animal products" },
+  { key: "seasonal",    label: "Make seasonal",  tooltip: "Use ingredients that are in season right now" },
+  { key: "eco",         label: "Reduce impact",  tooltip: "Lower the environmental footprint" },
+  { key: "cheaper",     label: "Make cheaper",   tooltip: "Substitute with lower-cost ingredients" },
   { key: "luxurious",   label: "Make luxurious", tooltip: "Elevate with higher-end swaps" },
-] as const;
+];
+
+const TRANSFORM_GROUPS: { title: string; keys: string[] }[] = [
+  { title: "Diet",           keys: ["veggie", "vegan"] },
+  { title: "Sustainability", keys: ["seasonal", "eco"] },
+  { title: "Price",          keys: ["cheaper", "luxurious"] },
+];
+
+function findTransform(key: string | null): Transformation | undefined {
+  return key ? TRANSFORMATIONS.find(t => t.key === key) : undefined;
+}
 
 const DIETARY_OPTIONS = [
   "Gluten-free", "Dairy-free", "Nut-free", "Egg-free",
@@ -175,23 +188,26 @@ export default function RecipeDetailPage() {
   const [notes, setNotes] = useState("");
   const [notesSaved, setNotesSaved] = useState(true);
 
-  // Nutrition / Cost
+  // Nutrition / Cost / Impact
   const [nutrition, setNutrition] = useState<NutritionResponse | null>(null);
   const [nutritionLoading, setNutritionLoading] = useState(false);
   const [cost, setCost] = useState<CostResponse | null>(null);
   const [costLoading, setCostLoading] = useState(false);
+  const [impact, setImpact] = useState<ImpactResponse | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
 
   // Image
   const [uploadingImage, setUploadingImage] = useState(false);
 
   // Basket
-  const [addedToBasket, setAddedToBasket] = useState(false);
+  const [basketFeedback, setBasketFeedback] = useState<{ added: number; skipped: string[] } | null>(null);
 
   // Popover state
-  const [openPopover, setOpenPopover] = useState<"tailor" | "nutrition" | "cost" | null>(null);
-  const tailorBtnRef = useRef<HTMLButtonElement>(null);
+  const [openPopover, setOpenPopover] = useState<"season" | "nutrition" | "cost" | "impact" | null>(null);
+  const seasonBtnRef = useRef<HTMLButtonElement>(null);
   const nutritionBtnRef = useRef<HTMLButtonElement>(null);
   const costBtnRef = useRef<HTMLButtonElement>(null);
+  const impactBtnRef = useRef<HTMLButtonElement>(null);
 
   // ─── Load recipe ─────────────────────────────────────────────────────────
 
@@ -358,14 +374,29 @@ export default function RecipeDetailPage() {
     }
   }
 
+  // ─── Impact ────────────────────────────────────────────────────────────
+
+  async function ensureImpact() {
+    if (!recipe || impact || impactLoading) return;
+    setImpactLoading(true);
+    try {
+      const data = await estimateImpact(recipe.id);
+      setImpact(data);
+    } catch (e: any) {
+      alert("Could not estimate impact: " + e.message);
+    } finally {
+      setImpactLoading(false);
+    }
+  }
+
   // ─── Basket ────────────────────────────────────────────────────────────
 
   async function handleAddToBasket() {
     if (!recipe) return;
     try {
-      await addRecipeToBasket(recipe.id, ingredientsToShow);
-      setAddedToBasket(true);
-      setTimeout(() => setAddedToBasket(false), 3000);
+      const result = await addRecipeToBasket(recipe.id, ingredientsToShow);
+      setBasketFeedback({ added: result.added, skipped: result.skipped_in_larder });
+      setTimeout(() => setBasketFeedback(null), 5000);
     } catch (e: any) {
       alert("Failed to add to basket: " + e.message);
     }
@@ -373,7 +404,7 @@ export default function RecipeDetailPage() {
 
   // ─── Popover helpers ─────────────────────────────────────────────────────
 
-  function togglePopover(which: "tailor" | "nutrition" | "cost") {
+  function togglePopover(which: "season" | "nutrition" | "cost" | "impact") {
     if (openPopover === which) {
       setOpenPopover(null);
       return;
@@ -381,6 +412,7 @@ export default function RecipeDetailPage() {
     setOpenPopover(which);
     if (which === "nutrition") ensureNutrition();
     if (which === "cost") ensureCost();
+    if (which === "impact") ensureImpact();
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -521,7 +553,7 @@ export default function RecipeDetailPage() {
 
                 {/* Units segmented toggle */}
                 {!isFriendView && (
-                  <Tooltip label="Switch between metric and US customary">
+                  <Tooltip label="Switch between metric (g, ml) and imperial (oz, lb)">
                     <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
                       <span style={{ color: colors.green, display: "flex", padding: "0 8px" }}><UnitsIcon size={16} /></span>
                       {(["metric", "us_customary"] as const).map(u => (
@@ -536,24 +568,26 @@ export default function RecipeDetailPage() {
                             border: "none", cursor: "pointer", fontFamily: fonts.sans,
                           }}
                         >
-                          {u === "metric" ? "Metric" : "US"}
+                          {u === "metric" ? "Metric" : "Imperial"}
                         </button>
                       ))}
                     </div>
                   </Tooltip>
                 )}
 
-                {/* Tailor */}
+                {/* Season */}
                 {!isFriendView && (
                   <div style={{ position: "relative", display: "inline-flex" }}>
-                    <Tooltip label="Adjust this recipe: veggie, vegan, cheaper, seasonal, and more" disabled={openPopover === "tailor"}>
+                    <Tooltip label="Season this recipe: personalise, veggie, vegan, seasonal, cheaper, and more" disabled={openPopover === "season"}>
                       <button
-                        ref={tailorBtnRef}
-                        onClick={() => togglePopover("tailor")}
+                        ref={seasonBtnRef}
+                        onClick={() => togglePopover("season")}
                         style={activeTransform ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN}
                       >
-                        <TailorIcon size={16} />
-                        <span>Tailor</span>
+                        <span style={{ color: activeTransform ? colors.green : colors.green, display: "flex" }}>
+                          <SaltShakerLogo size={16} color="currentColor" strokeWidth={2} />
+                        </span>
+                        <span>Season</span>
                         {activeTransformLabel && (
                           <span
                             style={{
@@ -572,43 +606,82 @@ export default function RecipeDetailPage() {
                       </button>
                     </Tooltip>
                     <Popover
-                      open={openPopover === "tailor"}
+                      open={openPopover === "season"}
                       onClose={() => setOpenPopover(null)}
-                      anchorRef={tailorBtnRef}
+                      anchorRef={seasonBtnRef}
                       align="start"
                       width={320}
                     >
                       <div style={{ fontFamily: fonts.sans }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "4px 6px 8px" }}>Change the recipe</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                          {TRANSFORMATIONS.map(t => {
-                            const active = activeTransform === t.key;
-                            return (
-                              <Tooltip key={t.key} label={t.tooltip} placement="top">
-                                <button
-                                  onClick={() => handleTransform(t.key)}
-                                  disabled={transforming}
-                                  style={{
-                                    width: "100%",
-                                    padding: "8px 10px", borderRadius: 8,
-                                    border: active ? "none" : `1px solid ${colors.borderSoft}`,
-                                    background: active ? colors.green : colors.white,
-                                    color: active ? colors.white : colors.text,
-                                    fontSize: 13, fontWeight: active ? 600 : 500,
-                                    fontFamily: fonts.sans, cursor: "pointer", textAlign: "left",
-                                  }}
-                                >
-                                  {t.label}
-                                </button>
-                              </Tooltip>
-                            );
-                          })}
-                        </div>
+                        {/* Personalise — featured at the top */}
+                        {(() => {
+                          const t = findTransform("personalise")!;
+                          const active = activeTransform === "personalise";
+                          return (
+                            <Tooltip label={t.tooltip} placement="top">
+                              <button
+                                onClick={() => handleTransform(t.key)}
+                                disabled={transforming}
+                                style={{
+                                  width: "100%",
+                                  padding: "12px 14px", borderRadius: 10,
+                                  border: active ? "none" : `1px solid ${colors.green}`,
+                                  background: active ? colors.green : colors.greenLight,
+                                  color: active ? colors.white : colors.green,
+                                  fontSize: 14, fontWeight: 600,
+                                  fontFamily: fonts.sans, cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 8,
+                                }}
+                              >
+                                <SaltShakerLogo size={18} color="currentColor" strokeWidth={2} />
+                                Personalise
+                                <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 500, opacity: 0.8 }}>
+                                  Made for you
+                                </span>
+                              </button>
+                            </Tooltip>
+                          );
+                        })()}
 
-                        <div style={{ height: 1, background: colors.borderSoft, margin: "12px 0" }} />
+                        {/* Grouped sections */}
+                        {TRANSFORM_GROUPS.map(group => (
+                          <div key={group.title} style={{ marginTop: 14 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0 2px 6px" }}>
+                              {group.title}
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                              {group.keys.map(k => {
+                                const t = findTransform(k);
+                                if (!t) return null;
+                                const active = activeTransform === k;
+                                return (
+                                  <Tooltip key={k} label={t.tooltip} placement="top">
+                                    <button
+                                      onClick={() => handleTransform(k)}
+                                      disabled={transforming}
+                                      style={{
+                                        width: "100%",
+                                        padding: "8px 10px", borderRadius: 8,
+                                        border: active ? "none" : `1px solid ${colors.borderSoft}`,
+                                        background: active ? colors.green : colors.white,
+                                        color: active ? colors.white : colors.text,
+                                        fontSize: 13, fontWeight: active ? 600 : 500,
+                                        fontFamily: fonts.sans, cursor: "pointer", textAlign: "left",
+                                      }}
+                                    >
+                                      {t.label}
+                                    </button>
+                                  </Tooltip>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
 
-                        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0 6px 8px" }}>Dietary needs</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 4px" }}>
+                        <div style={{ height: 1, background: colors.borderSoft, margin: "14px 0" }} />
+
+                        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0 2px 6px" }}>Dietary needs</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 2px" }}>
                           {DIETARY_OPTIONS.map(opt => {
                             const on = dietaryReqs.includes(opt);
                             return (
@@ -631,7 +704,7 @@ export default function RecipeDetailPage() {
 
                         {activeTransform && (
                           <>
-                            <div style={{ height: 1, background: colors.borderSoft, margin: "12px 0" }} />
+                            <div style={{ height: 1, background: colors.borderSoft, margin: "14px 0" }} />
                             <button
                               onClick={() => { showOriginal(); setOpenPopover(null); }}
                               style={{
@@ -744,27 +817,115 @@ export default function RecipeDetailPage() {
                   </Popover>
                 </div>
 
+                {/* Impact */}
+                <div style={{ position: "relative", display: "inline-flex" }}>
+                  <Tooltip label="Environmental impact, estimated in kg CO2e" disabled={openPopover === "impact"}>
+                    <button
+                      ref={impactBtnRef}
+                      onClick={() => togglePopover("impact")}
+                      aria-label="Environmental impact"
+                      style={{ ...TOOLBAR_BTN, padding: "8px 10px" }}
+                    >
+                      <ImpactIcon size={16} />
+                    </button>
+                  </Tooltip>
+                  <Popover
+                    open={openPopover === "impact"}
+                    onClose={() => setOpenPopover(null)}
+                    anchorRef={impactBtnRef}
+                    align="end"
+                    width={320}
+                  >
+                    <div style={{ fontFamily: fonts.sans }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                        Environmental impact
+                      </div>
+                      {impactLoading ? (
+                        <LoadingSpinner label="Estimating..." />
+                      ) : impact ? (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                            <div style={{ textAlign: "center", padding: "12px 6px", background: colors.cream, borderRadius: 8 }}>
+                              <div style={{ fontSize: 20, fontWeight: 600, color: colors.green }}>
+                                {impact.kg_co2e_per_serving.toFixed(2)}
+                              </div>
+                              <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>kg CO2e / serving</div>
+                            </div>
+                            <div style={{ textAlign: "center", padding: "12px 6px", background: colors.cream, borderRadius: 8 }}>
+                              <div style={{ fontSize: 20, fontWeight: 600, color: colors.text }}>
+                                {impact.kg_co2e_total.toFixed(2)}
+                              </div>
+                              <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>kg CO2e total</div>
+                            </div>
+                          </div>
+                          <div style={{
+                            display: "inline-block", padding: "3px 10px", borderRadius: 999,
+                            fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5,
+                            background: impact.rating === "low" ? colors.greenLight : impact.rating === "high" ? colors.errorBg : "#fff4d6",
+                            color: impact.rating === "low" ? colors.green : impact.rating === "high" ? colors.error : "#8a6d00",
+                            marginBottom: 8,
+                          }}>
+                            {impact.rating} impact
+                          </div>
+                          {impact.summary && (
+                            <p style={{ fontSize: 13, color: colors.textSoft, lineHeight: 1.5, margin: 0 }}>
+                              {impact.summary}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 13, color: colors.muted }}>No estimate yet.</div>
+                      )}
+                    </div>
+                  </Popover>
+                </div>
+
                 {/* Spacer pushes basket right */}
                 <div style={{ flex: 1 }} />
 
                 {/* Add to basket */}
                 {!isFriendView && (
-                  <Tooltip label="Add these ingredients to your shopping basket" placement="top">
+                  <Tooltip label="Add these ingredients to your shopping basket (skips anything in your larder)" placement="top">
                     <button
                       onClick={handleAddToBasket}
-                      style={addedToBasket
+                      style={basketFeedback
                         ? { ...TOOLBAR_BTN_ACTIVE, background: colors.greenLight, color: colors.green }
                         : TOOLBAR_BTN_PRIMARY}
                     >
                       <BasketIcon size={16} />
-                      <span>{addedToBasket ? "Added" : "Add to basket"}</span>
+                      <span>{basketFeedback ? "Added" : "Add to basket"}</span>
                     </button>
                   </Tooltip>
                 )}
               </div>
             </div>
 
-            {transforming && <LoadingSpinner label="Tailoring the recipe..." />}
+            {/* Basket dedup feedback */}
+            {basketFeedback && (
+              <div
+                role="status"
+                style={{
+                  background: colors.greenLight, border: `1px solid ${colors.green}`,
+                  borderRadius: 10, padding: "10px 14px",
+                  fontFamily: fonts.sans, fontSize: 13, color: colors.text,
+                  display: "flex", flexDirection: "column", gap: 4,
+                }}
+              >
+                <div style={{ color: colors.green, fontWeight: 600 }}>
+                  {basketFeedback.added === 0
+                    ? "Everything's already in your larder."
+                    : `Added ${basketFeedback.added} ${basketFeedback.added === 1 ? "item" : "items"} to your basket.`}
+                </div>
+                {basketFeedback.skipped.length > 0 && (
+                  <div style={{ color: colors.textSoft }}>
+                    Skipped {basketFeedback.skipped.length} already in your larder: {basketFeedback.skipped.slice(0, 5).join(", ")}
+                    {basketFeedback.skipped.length > 5 ? ` and ${basketFeedback.skipped.length - 5} more` : ""}.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {transforming && <LoadingSpinner label="Seasoning the recipe..." />}
 
             {/* Transformation reasoning */}
             {transformData && Object.keys(transformData.reasoning).length > 0 && (

@@ -15,7 +15,7 @@ from app.schemas import (
     TransformRequest, TransformResponse,
     SubstitutionRequest, SubstitutionResponse,
     NutritionResponse, NutritionPerServing,
-    CostResponse,
+    CostResponse, ImpactResponse,
 )
 from app.auth import get_current_user
 from app.models import User, Friendship
@@ -24,6 +24,7 @@ from app.prompts import (
     RECIPE_PARSE_SYSTEM_PROMPT, RECIPE_IMAGE_SYSTEM_PROMPT,
     RECIPE_TRANSFORM_SYSTEM_PROMPT, INGREDIENT_SUBSTITUTE_SYSTEM_PROMPT,
     NUTRITION_SYSTEM_PROMPT, COST_ESTIMATE_SYSTEM_PROMPT,
+    IMPACT_ESTIMATE_SYSTEM_PROMPT,
     RECIPE_GENERATE_SYSTEM_PROMPT,
 )
 from app.conversions import convert_ingredients
@@ -574,6 +575,50 @@ async def estimate_cost(
         per_serving=data.get("per_serving", 0),
         currency=data.get("currency", currency),
         breakdown=data.get("breakdown", []),
+    )
+
+
+# ─── Environmental Impact ────────────────────────────────────────────────────
+
+@router.post("/{recipe_id}/impact", response_model=ImpactResponse)
+async def estimate_impact(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+
+    recipe_text = _recipe_to_text(recipe)
+
+    def _do_impact():
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": IMPACT_ESTIMATE_SYSTEM_PROMPT},
+                {"role": "user", "content": recipe_text},
+            ],
+            model="gpt-4o-mini",
+            temperature=0.2,
+        )
+        if "error" in result and "content" not in result:
+            raise ValueError(result["error"])
+        return _extract_json(result.get("content", ""))
+
+    try:
+        data = await asyncio.to_thread(_do_impact)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    rating = (data.get("rating") or "medium").strip().lower()
+    if rating not in ("low", "medium", "high"):
+        rating = "medium"
+
+    return ImpactResponse(
+        kg_co2e_per_serving=float(data.get("kg_co2e_per_serving", 0)),
+        kg_co2e_total=float(data.get("kg_co2e_total", 0)),
+        rating=rating,
+        summary=str(data.get("summary", "")),
+        breakdown=data.get("breakdown", []) or [],
     )
 
 

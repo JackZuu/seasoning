@@ -27,12 +27,19 @@ export async function addToBasket(item: string, category: string = "Other", quan
   return data;
 }
 
-export async function addRecipeToBasket(recipeId: number, ingredients: Ingredient[]): Promise<void> {
+export interface AddRecipeToBasketResult {
+  added: number;
+  skipped_in_larder: string[];
+}
+
+export async function addRecipeToBasket(recipeId: number, ingredients: Ingredient[]): Promise<AddRecipeToBasketResult> {
   const res = await apiFetch("/api/basket/from-recipe", {
     method: "POST",
     body: JSON.stringify({ recipe_id: recipeId, ingredients }),
   });
-  if (!res.ok) throw new Error("Failed to add recipe to basket");
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Failed to add recipe to basket");
+  return { added: data.added ?? 0, skipped_in_larder: data.skipped_in_larder ?? [] };
 }
 
 export async function toggleCheck(id: number): Promise<boolean> {
