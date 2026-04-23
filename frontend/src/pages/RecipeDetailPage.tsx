@@ -3,7 +3,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
 import SaltShakerLogo from "../components/SaltShakerLogo";
-import { colors } from "../theme";
+import Tooltip from "../components/Tooltip";
+import Popover from "../components/Popover";
+import {
+  ServingsIcon, UnitsIcon, TailorIcon, NutritionIcon, CostIcon, BasketIcon,
+  ChevronIcon, CloseIcon, MinusIcon, PlusIcon,
+} from "../components/RecipeIcons";
+import { colors, fonts } from "../theme";
 import {
   getRecipe, convertRecipe, updateNotes, uploadRecipeImage,
   transformRecipe, substituteIngredient, getNutrition, estimateCost,
@@ -32,19 +38,23 @@ function formatQuantity(q: number | null): string {
 }
 
 const TRANSFORMATIONS = [
-  { key: "personalise", label: "Personalise", tooltip: "Based on your preferences" },
-  { key: "veggie", label: "Make Veggie", tooltip: "" },
-  { key: "vegan", label: "Make Vegan", tooltip: "" },
-  { key: "seasonal", label: "Make Seasonal", tooltip: "" },
-  { key: "eco", label: "Reduce Impact", tooltip: "" },
-  { key: "cheaper", label: "Make Cheaper", tooltip: "" },
-  { key: "luxurious", label: "Make Luxurious", tooltip: "" },
+  { key: "personalise", label: "Personalise", tooltip: "Adapt this recipe to your saved preferences" },
+  { key: "veggie",      label: "Make veggie",  tooltip: "Swap meat and fish for vegetarian alternatives" },
+  { key: "vegan",       label: "Make vegan",   tooltip: "Replace all animal products" },
+  { key: "seasonal",    label: "Make seasonal", tooltip: "Use ingredients that are in season right now" },
+  { key: "eco",         label: "Reduce impact", tooltip: "Lower the environmental footprint" },
+  { key: "cheaper",     label: "Make cheaper", tooltip: "Substitute with lower-cost ingredients" },
+  { key: "luxurious",   label: "Make luxurious", tooltip: "Elevate with higher-end swaps" },
 ] as const;
 
 const DIETARY_OPTIONS = [
   "Gluten-free", "Dairy-free", "Nut-free", "Egg-free",
   "Soy-free", "Shellfish-free", "Halal", "Kosher",
 ];
+
+function currencySymbol(code: string) {
+  return code === "GBP" ? "£" : code === "USD" ? "$" : code === "EUR" ? "€" : code;
+}
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -60,7 +70,7 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
 
   if (substitution) {
     return (
-      <li style={{ padding: "10px 0", borderBottom: `1px solid ${colors.border}`, fontFamily: "system-ui, sans-serif", fontSize: 14 }}>
+      <li style={{ padding: "10px 0", borderBottom: `1px solid ${colors.borderSoft}`, fontFamily: fonts.sans, fontSize: 14 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ color: colors.green, fontWeight: 500 }}>↻</span>
           <span style={{ color: colors.green, fontWeight: 500 }}>{substitution.substitute}</span>
@@ -75,8 +85,8 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
   return (
     <li style={{
       display: "flex", gap: 8, padding: "10px 0",
-      borderBottom: `1px solid ${colors.border}`,
-      fontFamily: "system-ui, sans-serif", fontSize: 14,
+      borderBottom: `1px solid ${colors.borderSoft}`,
+      fontFamily: fonts.sans, fontSize: 14,
       color: colors.text, alignItems: "baseline",
     }}>
       <span style={{ minWidth: 60, fontWeight: 500, color: colors.green }}>
@@ -92,11 +102,11 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
         <button
           onClick={onSubstitute}
           disabled={substituting}
-          title="Don't have this?"
+          title="Don't have this? Swap it."
           style={{
             background: "none", border: `1px solid ${colors.border}`, borderRadius: 6,
             padding: "3px 8px", fontSize: 11, color: colors.muted, cursor: "pointer",
-            whiteSpace: "nowrap", flexShrink: 0,
+            whiteSpace: "nowrap", flexShrink: 0, fontFamily: fonts.sans,
           }}
         >
           {substituting ? "..." : "Swap?"}
@@ -106,12 +116,31 @@ function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substitut
   );
 }
 
+// ─── Toolbar bits ────────────────────────────────────────────────────────────
+
+const TOOLBAR_BTN: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 8,
+  padding: "8px 12px", borderRadius: 10, border: `1px solid ${colors.border}`,
+  background: colors.white, color: colors.text, fontFamily: fonts.sans,
+  fontSize: 13, fontWeight: 500, cursor: "pointer",
+  whiteSpace: "nowrap", transition: "background 0.15s, border-color 0.15s",
+};
+
+const TOOLBAR_BTN_PRIMARY: React.CSSProperties = {
+  ...TOOLBAR_BTN,
+  background: colors.green, color: colors.white, border: "none", fontWeight: 600,
+};
+
+const TOOLBAR_BTN_ACTIVE: React.CSSProperties = {
+  ...TOOLBAR_BTN, background: colors.greenLight, borderColor: colors.green, color: colors.green,
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function RecipeDetailPage() {
   const { id, friendId, recipeId } = useParams<{ id: string; friendId: string; recipeId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user: _user } = useAuth();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -119,7 +148,7 @@ export default function RecipeDetailPage() {
   const effectiveId = isFriendView ? recipeId : id;
   const [savingCopy, setSavingCopy] = useState(false);
 
-  // Core state
+  // Core
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -127,7 +156,7 @@ export default function RecipeDetailPage() {
   // Servings
   const [adjustedServings, setAdjustedServings] = useState<number | null>(null);
 
-  // Ingredients display
+  // Ingredients / units
   const [displayIngredients, setDisplayIngredients] = useState<Ingredient[]>([]);
   const [unitSystem, setUnitSystem] = useState<"us_customary" | "metric">("us_customary");
   const [converting, setConverting] = useState(false);
@@ -136,10 +165,7 @@ export default function RecipeDetailPage() {
   const [activeTransform, setActiveTransform] = useState<string | null>(null);
   const [transformData, setTransformData] = useState<TransformResponse | null>(null);
   const [transforming, setTransforming] = useState(false);
-
-  // Dietary
   const [dietaryReqs, setDietaryReqs] = useState<string[]>([]);
-  const [showDietary, setShowDietary] = useState(false);
 
   // Substitutions
   const [substitutions, setSubstitutions] = useState<Record<string, SubstitutionResponse>>({});
@@ -149,21 +175,23 @@ export default function RecipeDetailPage() {
   const [notes, setNotes] = useState("");
   const [notesSaved, setNotesSaved] = useState(true);
 
-  // Nutrition
+  // Nutrition / Cost
   const [nutrition, setNutrition] = useState<NutritionResponse | null>(null);
   const [nutritionLoading, setNutritionLoading] = useState(false);
-  const [showNutrition, setShowNutrition] = useState(false);
+  const [cost, setCost] = useState<CostResponse | null>(null);
+  const [costLoading, setCostLoading] = useState(false);
 
   // Image
   const [uploadingImage, setUploadingImage] = useState(false);
 
-  // Cost
-  const [cost, setCost] = useState<CostResponse | null>(null);
-  const [costLoading, setCostLoading] = useState(false);
-  const [showCost, setShowCost] = useState(false);
-
   // Basket
   const [addedToBasket, setAddedToBasket] = useState(false);
+
+  // Popover state
+  const [openPopover, setOpenPopover] = useState<"tailor" | "nutrition" | "cost" | null>(null);
+  const tailorBtnRef = useRef<HTMLButtonElement>(null);
+  const nutritionBtnRef = useRef<HTMLButtonElement>(null);
+  const costBtnRef = useRef<HTMLButtonElement>(null);
 
   // ─── Load recipe ─────────────────────────────────────────────────────────
 
@@ -230,6 +258,7 @@ export default function RecipeDetailPage() {
     }
     setTransforming(true);
     setActiveTransform(type);
+    setOpenPopover(null);
     try {
       const data = await transformRecipe(recipe.id, type, dietaryReqs);
       setTransformData(data);
@@ -273,7 +302,7 @@ export default function RecipeDetailPage() {
       await updateNotes(recipe.id, value);
       setNotesSaved(true);
     } catch {
-      // Silent fail — user can retry
+      // Silent fail; user can retry
     }
   }, [recipe]);
 
@@ -286,20 +315,14 @@ export default function RecipeDetailPage() {
 
   // ─── Nutrition ────────────────────────────────────────────────────────────
 
-  async function handleShowNutrition() {
-    if (!recipe) return;
-    if (nutrition) {
-      setShowNutrition(!showNutrition);
-      return;
-    }
+  async function ensureNutrition() {
+    if (!recipe || nutrition || nutritionLoading) return;
     setNutritionLoading(true);
-    setShowNutrition(true);
     try {
       const data = await getNutrition(recipe.id);
       setNutrition(data);
     } catch (e: any) {
       alert("Could not get nutrition: " + e.message);
-      setShowNutrition(false);
     } finally {
       setNutritionLoading(false);
     }
@@ -322,17 +345,14 @@ export default function RecipeDetailPage() {
 
   // ─── Cost ──────────────────────────────────────────────────────────────
 
-  async function handleShowCost() {
-    if (!recipe) return;
-    if (cost) { setShowCost(!showCost); return; }
+  async function ensureCost() {
+    if (!recipe || cost || costLoading) return;
     setCostLoading(true);
-    setShowCost(true);
     try {
       const data = await estimateCost(recipe.id);
       setCost(data);
     } catch (e: any) {
       alert("Could not estimate cost: " + e.message);
-      setShowCost(false);
     } finally {
       setCostLoading(false);
     }
@@ -351,6 +371,18 @@ export default function RecipeDetailPage() {
     }
   }
 
+  // ─── Popover helpers ─────────────────────────────────────────────────────
+
+  function togglePopover(which: "tailor" | "nutrition" | "cost") {
+    if (openPopover === which) {
+      setOpenPopover(null);
+      return;
+    }
+    setOpenPopover(which);
+    if (which === "nutrition") ensureNutrition();
+    if (which === "cost") ensureCost();
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   const date = recipe
@@ -360,9 +392,10 @@ export default function RecipeDetailPage() {
   const ingredientsToShow = transformData ? transformData.ingredients : displayIngredients;
   const instructionsToShow = transformData ? transformData.instructions : (recipe?.instructions || []);
 
-  // Scale nutrition per current servings
   const nutritionScale = (nutrition && adjustedServings && nutrition.servings)
     ? adjustedServings / nutrition.servings : 1;
+
+  const activeTransformLabel = TRANSFORMATIONS.find(t => t.key === activeTransform)?.label;
 
   return (
     <div style={{ minHeight: "100vh", background: colors.cream, display: "flex", flexDirection: "column" }}>
@@ -371,7 +404,7 @@ export default function RecipeDetailPage() {
       <div style={{ maxWidth: 800, width: "100%", margin: "0 auto", padding: "clamp(16px, 4vw, 40px)", flex: 1 }}>
         {loading && <LoadingSpinner label="Loading recipe..." />}
         {error && (
-          <div style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, borderRadius: 8, padding: "12px 16px", color: colors.error, fontSize: 13, fontFamily: "system-ui, sans-serif" }}>
+          <div style={{ background: colors.errorBg, border: `1px solid ${colors.errorBorder}`, borderRadius: 8, padding: "12px 16px", color: colors.error, fontSize: 13, fontFamily: fonts.sans }}>
             {error}
           </div>
         )}
@@ -384,7 +417,7 @@ export default function RecipeDetailPage() {
               <img
                 src={recipe.image_url}
                 alt={recipe.title}
-                style={{ width: "100%", maxHeight: 360, objectFit: "cover", borderRadius: 12, border: `1px solid ${colors.border}` }}
+                style={{ width: "100%", maxHeight: 360, objectFit: "cover", borderRadius: 12, border: `1px solid ${colors.borderSoft}` }}
               />
             )}
 
@@ -392,13 +425,13 @@ export default function RecipeDetailPage() {
             <div>
               <button
                 onClick={() => navigate(isFriendView ? "/friends" : "/dashboard")}
-                style={{ background: "none", border: "none", color: colors.muted, fontSize: 13, fontFamily: "system-ui, sans-serif", cursor: "pointer", padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
+                style={{ background: "none", border: "none", color: colors.muted, fontSize: 13, fontFamily: fonts.sans, cursor: "pointer", padding: "0 0 12px 0", display: "flex", alignItems: "center", gap: 4 }}
               >
                 ← {isFriendView ? "Back to friends" : "All recipes"}
               </button>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <SaltShakerLogo size={28} color={colors.green} />
-                <h1 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: "clamp(22px, 5vw, 32px)", margin: 0, lineHeight: 1.2, flex: 1 }}>
+                <h1 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, fontSize: "clamp(22px, 5vw, 34px)", margin: 0, lineHeight: 1.15, flex: 1, letterSpacing: "-0.01em" }}>
                   {recipe.title}
                 </h1>
                 {isFriendView && (
@@ -411,23 +444,22 @@ export default function RecipeDetailPage() {
                       borderRadius: 20, padding: "8px 16px", fontSize: 14, fontWeight: 600,
                       cursor: savingCopy ? "default" : "pointer",
                       display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                      fontFamily: "system-ui, sans-serif",
-                      opacity: savingCopy ? 0.7 : 1,
+                      fontFamily: fonts.sans, opacity: savingCopy ? 0.7 : 1,
                     }}
                   >
-                    <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+                    <PlusIcon size={16} />
                     {savingCopy ? "Saving..." : "Save to mine"}
                   </button>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 16, color: colors.muted, fontSize: 13, fontFamily: "system-ui, sans-serif", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 16, color: colors.muted, fontSize: 13, fontFamily: fonts.sans, alignItems: "center", flexWrap: "wrap" }}>
                 <span>Added {date}</span>
                 {!isFriendView && !recipe.image_url && (
                   <>
                     <button
                       onClick={() => imageInputRef.current?.click()}
                       disabled={uploadingImage}
-                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 12, color: colors.muted, cursor: "pointer" }}
+                      style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 12, color: colors.muted, cursor: "pointer", fontFamily: fonts.sans }}
                     >
                       {uploadingImage ? "Uploading..." : "Add photo"}
                     </button>
@@ -438,158 +470,322 @@ export default function RecipeDetailPage() {
               </div>
             </div>
 
-            {/* Servings adjuster */}
-            <div style={{
-              background: colors.white, borderRadius: 10, border: `1px solid ${colors.border}`,
-              padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-              fontFamily: "system-ui, sans-serif",
-            }}>
-              <span style={{ fontSize: 14, fontWeight: 500, color: colors.text }}>Servings</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button
-                  onClick={() => setAdjustedServings(Math.max(1, (adjustedServings || 1) - 1))}
-                  disabled={!recipe.servings}
-                  style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${colors.border}`, background: colors.white, cursor: "pointer", fontSize: 16, color: colors.text }}
-                >−</button>
-                <span style={{ fontSize: 18, fontWeight: 600, minWidth: 28, textAlign: "center", color: colors.green }}>
-                  {adjustedServings || recipe.servings || "–"}
-                </span>
-                <button
-                  onClick={() => setAdjustedServings((adjustedServings || 1) + 1)}
-                  disabled={!recipe.servings}
-                  style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${colors.border}`, background: colors.white, cursor: "pointer", fontSize: 16, color: colors.text }}
-                >+</button>
-              </div>
-              {scaleFactor !== 1 && (
-                <button
-                  onClick={() => setAdjustedServings(recipe.servings)}
-                  style={{ fontSize: 12, color: colors.green, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-                >Reset</button>
-              )}
-
-              {!isFriendView && (
-                <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                  {converting && <span style={{ fontSize: 12, color: colors.muted }}>Converting...</span>}
-                  <select
-                    value={unitSystem}
-                    onChange={e => handleUnitChange(e.target.value as "us_customary" | "metric")}
-                    disabled={converting}
-                    style={{
-                      fontSize: 13, fontFamily: "system-ui, sans-serif",
-                      border: `1px solid ${colors.border}`, borderRadius: 6,
-                      padding: "5px 10px", background: colors.white, color: colors.text,
-                      outline: "none", cursor: "pointer",
-                    }}
-                  >
-                    <option value="us_customary">US Customary</option>
-                    <option value="metric">Metric</option>
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {/* AI Transformation toggles */}
-            {!isFriendView && (
-            <>
-            <div style={{
-              display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center",
-            }}>
-              {TRANSFORMATIONS.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => handleTransform(t.key)}
-                  disabled={transforming}
-                  title={t.tooltip || ""}
-                  style={{
-                    padding: "6px 14px", borderRadius: 20, fontSize: 13,
-                    fontFamily: "system-ui, sans-serif", cursor: "pointer",
-                    border: activeTransform === t.key ? "none" : `1px solid ${colors.border}`,
-                    background: activeTransform === t.key ? colors.green : colors.white,
-                    color: activeTransform === t.key ? colors.white : colors.text,
-                    fontWeight: activeTransform === t.key ? 600 : 400,
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {t.label}
-                </button>
-              ))}
-
-              <button
-                onClick={() => setShowDietary(!showDietary)}
+            {/* ─── Sticky Toolbar ───────────────────────────────────────── */}
+            <div
+              style={{
+                position: "sticky", top: 0, zIndex: 20,
+                background: colors.cream,
+                margin: "0 -4px",
+                padding: "8px 4px",
+                borderBottom: `1px solid transparent`,
+                backdropFilter: "blur(6px)",
+              }}
+            >
+              <div
                 style={{
-                  padding: "6px 14px", borderRadius: 20, fontSize: 13,
-                  fontFamily: "system-ui, sans-serif", cursor: "pointer",
-                  border: `1px solid ${colors.border}`,
-                  background: dietaryReqs.length > 0 ? colors.greenLight : colors.white,
-                  color: colors.text,
+                  background: colors.white,
+                  border: `1px solid ${colors.borderSoft}`,
+                  borderRadius: 14,
+                  padding: "10px 12px",
+                  display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
                 }}
               >
-                Dietary {dietaryReqs.length > 0 && `(${dietaryReqs.length})`}
-              </button>
+                {/* Servings stepper */}
+                <Tooltip label="Portions — we scale ingredients for you">
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 8px", border: `1px solid ${colors.border}`, borderRadius: 10 }}>
+                    <span style={{ color: colors.green, display: "flex" }}><ServingsIcon size={16} /></span>
+                    <button
+                      onClick={() => setAdjustedServings(Math.max(1, (adjustedServings || 1) - 1))}
+                      disabled={!recipe.servings}
+                      aria-label="Fewer servings"
+                      style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${colors.border}`, background: colors.white, cursor: "pointer", color: colors.text, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                    ><MinusIcon /></button>
+                    <span style={{ fontSize: 14, fontWeight: 600, minWidth: 20, textAlign: "center", color: colors.green, fontFamily: fonts.sans }}>
+                      {adjustedServings || recipe.servings || "–"}
+                    </span>
+                    <button
+                      onClick={() => setAdjustedServings((adjustedServings || 1) + 1)}
+                      disabled={!recipe.servings}
+                      aria-label="More servings"
+                      style={{ width: 24, height: 24, borderRadius: "50%", border: `1px solid ${colors.border}`, background: colors.white, cursor: "pointer", color: colors.text, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                    ><PlusIcon /></button>
+                    {scaleFactor !== 1 && (
+                      <button
+                        onClick={() => setAdjustedServings(recipe.servings)}
+                        style={{ fontSize: 11, color: colors.green, background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontFamily: fonts.sans }}
+                      >Reset</button>
+                    )}
+                  </div>
+                </Tooltip>
 
-              {activeTransform && (
-                <button
-                  onClick={showOriginal}
-                  style={{
-                    padding: "6px 14px", borderRadius: 20, fontSize: 13,
-                    fontFamily: "system-ui, sans-serif", cursor: "pointer",
-                    border: "none", background: colors.muted, color: colors.white, fontWeight: 600,
-                  }}
-                >
-                  Show Original
-                </button>
-              )}
+                {/* Units segmented toggle */}
+                {!isFriendView && (
+                  <Tooltip label="Switch between metric and US customary">
+                    <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${colors.border}`, borderRadius: 10, overflow: "hidden" }}>
+                      <span style={{ color: colors.green, display: "flex", padding: "0 8px" }}><UnitsIcon size={16} /></span>
+                      {(["metric", "us_customary"] as const).map(u => (
+                        <button
+                          key={u}
+                          onClick={() => handleUnitChange(u)}
+                          disabled={converting}
+                          style={{
+                            padding: "6px 10px", fontSize: 12, fontWeight: 600,
+                            background: unitSystem === u ? colors.green : "transparent",
+                            color: unitSystem === u ? colors.white : colors.textSoft,
+                            border: "none", cursor: "pointer", fontFamily: fonts.sans,
+                          }}
+                        >
+                          {u === "metric" ? "Metric" : "US"}
+                        </button>
+                      ))}
+                    </div>
+                  </Tooltip>
+                )}
+
+                {/* Tailor */}
+                {!isFriendView && (
+                  <div style={{ position: "relative", display: "inline-flex" }}>
+                    <Tooltip label="Adjust this recipe: veggie, vegan, cheaper, seasonal, and more" disabled={openPopover === "tailor"}>
+                      <button
+                        ref={tailorBtnRef}
+                        onClick={() => togglePopover("tailor")}
+                        style={activeTransform ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN}
+                      >
+                        <TailorIcon size={16} />
+                        <span>Tailor</span>
+                        {activeTransformLabel && (
+                          <span
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              background: colors.green, color: colors.white,
+                              fontSize: 11, fontWeight: 600, padding: "2px 8px",
+                              borderRadius: 999,
+                            }}
+                            onClick={e => { e.stopPropagation(); showOriginal(); }}
+                          >
+                            {activeTransformLabel}
+                            <CloseIcon size={11} />
+                          </span>
+                        )}
+                        <ChevronIcon />
+                      </button>
+                    </Tooltip>
+                    <Popover
+                      open={openPopover === "tailor"}
+                      onClose={() => setOpenPopover(null)}
+                      anchorRef={tailorBtnRef}
+                      align="start"
+                      width={320}
+                    >
+                      <div style={{ fontFamily: fonts.sans }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "4px 6px 8px" }}>Change the recipe</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                          {TRANSFORMATIONS.map(t => {
+                            const active = activeTransform === t.key;
+                            return (
+                              <Tooltip key={t.key} label={t.tooltip} placement="top">
+                                <button
+                                  onClick={() => handleTransform(t.key)}
+                                  disabled={transforming}
+                                  style={{
+                                    width: "100%",
+                                    padding: "8px 10px", borderRadius: 8,
+                                    border: active ? "none" : `1px solid ${colors.borderSoft}`,
+                                    background: active ? colors.green : colors.white,
+                                    color: active ? colors.white : colors.text,
+                                    fontSize: 13, fontWeight: active ? 600 : 500,
+                                    fontFamily: fonts.sans, cursor: "pointer", textAlign: "left",
+                                  }}
+                                >
+                                  {t.label}
+                                </button>
+                              </Tooltip>
+                            );
+                          })}
+                        </div>
+
+                        <div style={{ height: 1, background: colors.borderSoft, margin: "12px 0" }} />
+
+                        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, padding: "0 6px 8px" }}>Dietary needs</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 4px" }}>
+                          {DIETARY_OPTIONS.map(opt => {
+                            const on = dietaryReqs.includes(opt);
+                            return (
+                              <button
+                                key={opt}
+                                onClick={() => setDietaryReqs(prev => prev.includes(opt) ? prev.filter(d => d !== opt) : [...prev, opt])}
+                                style={{
+                                  padding: "4px 10px", borderRadius: 999, fontSize: 12,
+                                  border: `1px solid ${on ? colors.green : colors.borderSoft}`,
+                                  background: on ? colors.greenLight : colors.white,
+                                  color: on ? colors.green : colors.textSoft,
+                                  fontWeight: on ? 600 : 500, cursor: "pointer", fontFamily: fonts.sans,
+                                }}
+                              >
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {activeTransform && (
+                          <>
+                            <div style={{ height: 1, background: colors.borderSoft, margin: "12px 0" }} />
+                            <button
+                              onClick={() => { showOriginal(); setOpenPopover(null); }}
+                              style={{
+                                width: "100%", padding: "8px 10px", borderRadius: 8,
+                                border: "none", background: colors.cream, color: colors.text,
+                                fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: fonts.sans,
+                              }}
+                            >
+                              Show original
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </Popover>
+                  </div>
+                )}
+
+                {/* Nutrition */}
+                <div style={{ position: "relative", display: "inline-flex" }}>
+                  <Tooltip label="Nutritional info per serving" disabled={openPopover === "nutrition"}>
+                    <button
+                      ref={nutritionBtnRef}
+                      onClick={() => togglePopover("nutrition")}
+                      aria-label="Nutritional info"
+                      style={{ ...TOOLBAR_BTN, padding: "8px 10px" }}
+                    >
+                      <NutritionIcon size={16} />
+                    </button>
+                  </Tooltip>
+                  <Popover
+                    open={openPopover === "nutrition"}
+                    onClose={() => setOpenPopover(null)}
+                    anchorRef={nutritionBtnRef}
+                    align="end"
+                    width={320}
+                  >
+                    <div style={{ fontFamily: fonts.sans }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                        Nutrition, per serving
+                      </div>
+                      {nutritionLoading ? (
+                        <LoadingSpinner label="Estimating..." />
+                      ) : nutrition ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                          {([
+                            ["Calories", Math.round(nutrition.per_serving.calories * nutritionScale), "kcal"],
+                            ["Protein", +(nutrition.per_serving.protein_g * nutritionScale).toFixed(1), "g"],
+                            ["Carbs", +(nutrition.per_serving.carbs_g * nutritionScale).toFixed(1), "g"],
+                            ["Fat", +(nutrition.per_serving.fat_g * nutritionScale).toFixed(1), "g"],
+                            ["Fibre", +(nutrition.per_serving.fiber_g * nutritionScale).toFixed(1), "g"],
+                            ["Sugar", +(nutrition.per_serving.sugar_g * nutritionScale).toFixed(1), "g"],
+                          ] as [string, number, string][]).map(([label, value, unit]) => (
+                            <div key={label} style={{ textAlign: "center", padding: "10px 6px", background: colors.cream, borderRadius: 8 }}>
+                              <div style={{ fontSize: 16, fontWeight: 600, color: colors.green }}>{value}</div>
+                              <div style={{ fontSize: 10, color: colors.muted, marginTop: 2 }}>{label} ({unit})</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 13, color: colors.muted }}>No data yet.</div>
+                      )}
+                    </div>
+                  </Popover>
+                </div>
+
+                {/* Cost */}
+                <div style={{ position: "relative", display: "inline-flex" }}>
+                  <Tooltip label="Estimated cost per serving and total" disabled={openPopover === "cost"}>
+                    <button
+                      ref={costBtnRef}
+                      onClick={() => togglePopover("cost")}
+                      aria-label="Cost estimate"
+                      style={{ ...TOOLBAR_BTN, padding: "8px 10px" }}
+                    >
+                      <CostIcon size={16} />
+                    </button>
+                  </Tooltip>
+                  <Popover
+                    open={openPopover === "cost"}
+                    onClose={() => setOpenPopover(null)}
+                    anchorRef={costBtnRef}
+                    align="end"
+                    width={280}
+                  >
+                    <div style={{ fontFamily: fonts.sans }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
+                        Cost estimate
+                      </div>
+                      {costLoading ? (
+                        <LoadingSpinner label="Estimating..." />
+                      ) : cost ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          <div style={{ textAlign: "center", padding: "12px 6px", background: colors.cream, borderRadius: 8 }}>
+                            <div style={{ fontSize: 20, fontWeight: 600, color: colors.green }}>
+                              {currencySymbol(cost.currency)}{cost.per_serving.toFixed(2)}
+                            </div>
+                            <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>per serving</div>
+                          </div>
+                          <div style={{ textAlign: "center", padding: "12px 6px", background: colors.cream, borderRadius: 8 }}>
+                            <div style={{ fontSize: 20, fontWeight: 600, color: colors.text }}>
+                              {currencySymbol(cost.currency)}{cost.total.toFixed(2)}
+                            </div>
+                            <div style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>total</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 13, color: colors.muted }}>No estimate yet.</div>
+                      )}
+                    </div>
+                  </Popover>
+                </div>
+
+                {/* Spacer pushes basket right */}
+                <div style={{ flex: 1 }} />
+
+                {/* Add to basket */}
+                {!isFriendView && (
+                  <Tooltip label="Add these ingredients to your shopping basket" placement="top">
+                    <button
+                      onClick={handleAddToBasket}
+                      style={addedToBasket
+                        ? { ...TOOLBAR_BTN_ACTIVE, background: colors.greenLight, color: colors.green }
+                        : TOOLBAR_BTN_PRIMARY}
+                    >
+                      <BasketIcon size={16} />
+                      <span>{addedToBasket ? "Added" : "Add to basket"}</span>
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
             </div>
 
-            {transforming && <LoadingSpinner label="Transforming recipe..." />}
-
-            {/* Dietary checkboxes */}
-            {showDietary && (
-              <div style={{
-                background: colors.white, borderRadius: 10, border: `1px solid ${colors.border}`,
-                padding: "14px 20px",
-                display: "flex", gap: 12, flexWrap: "wrap", fontFamily: "system-ui, sans-serif",
-              }}>
-                {DIETARY_OPTIONS.map(opt => (
-                  <label key={opt} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: colors.text, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={dietaryReqs.includes(opt)}
-                      onChange={() => {
-                        setDietaryReqs(prev =>
-                          prev.includes(opt) ? prev.filter(d => d !== opt) : [...prev, opt]
-                        );
-                      }}
-                      style={{ accentColor: colors.green }}
-                    />
-                    {opt}
-                  </label>
-                ))}
-              </div>
-            )}
+            {transforming && <LoadingSpinner label="Tailoring the recipe..." />}
 
             {/* Transformation reasoning */}
             {transformData && Object.keys(transformData.reasoning).length > 0 && (
               <div style={{
-                background: colors.greenLight, borderRadius: 10, border: `1px solid ${colors.border}`,
-                padding: "14px 20px", fontFamily: "system-ui, sans-serif",
+                background: colors.greenLight, borderRadius: 12, border: `1px solid ${colors.border}`,
+                padding: "14px 20px", fontFamily: fonts.sans,
               }}>
                 <h4 style={{ fontSize: 13, fontWeight: 600, color: colors.green, marginBottom: 8 }}>
                   Changes made
                 </h4>
                 {Object.entries(transformData.reasoning).map(([change, reason]) => (
                   <div key={change} style={{ fontSize: 13, color: colors.text, marginBottom: 6, lineHeight: 1.5 }}>
-                    <strong>{change}</strong> — {reason}
+                    <strong>{change}</strong>, {reason}
                   </div>
                 ))}
               </div>
             )}
-            </>
-            )}
 
             {/* Ingredients */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
-              <h2 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: 18, marginBottom: 16 }}>
+            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.borderSoft}`, padding: "20px 24px" }}>
+              <h2 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, fontSize: 20, marginBottom: 16 }}>
                 Ingredients
               </h2>
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -608,13 +804,13 @@ export default function RecipeDetailPage() {
             </div>
 
             {/* Instructions */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
-              <h2 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: 18, marginBottom: 16 }}>
+            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.borderSoft}`, padding: "20px 24px" }}>
+              <h2 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, fontSize: 20, marginBottom: 16 }}>
                 Instructions
               </h2>
               <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 16 }}>
                 {instructionsToShow.map((step, i) => (
-                  <li key={i} style={{ display: "flex", gap: 14, fontFamily: "system-ui, sans-serif" }}>
+                  <li key={i} style={{ display: "flex", gap: 14, fontFamily: fonts.sans }}>
                     <span style={{
                       minWidth: 28, height: 28, borderRadius: "50%",
                       background: colors.green, color: colors.white,
@@ -636,140 +832,32 @@ export default function RecipeDetailPage() {
               </ol>
             </div>
 
-            {!isFriendView && (<>
-            {/* Nutrition */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
-              <button
-                onClick={handleShowNutrition}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  fontFamily: "Georgia, serif", color: colors.text, fontSize: 18,
-                  display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
-                }}
-              >
-                Nutritional Info
-                <span style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif" }}>
-                  {showNutrition ? "▲" : "▼"}
-                </span>
-              </button>
-
-              {showNutrition && (
-                <div style={{ marginTop: 16 }}>
-                  {nutritionLoading ? (
-                    <LoadingSpinner label="Estimating nutrition..." />
-                  ) : nutrition ? (
-                    <>
-                      <p style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif", marginBottom: 12 }}>
-                        Per serving (estimated)
-                      </p>
-                      <div style={{
-                        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))",
-                        gap: 12,
-                      }}>
-                        {([
-                          ["Calories", Math.round(nutrition.per_serving.calories * nutritionScale), "kcal"],
-                          ["Protein", +(nutrition.per_serving.protein_g * nutritionScale).toFixed(1), "g"],
-                          ["Carbs", +(nutrition.per_serving.carbs_g * nutritionScale).toFixed(1), "g"],
-                          ["Fat", +(nutrition.per_serving.fat_g * nutritionScale).toFixed(1), "g"],
-                          ["Fiber", +(nutrition.per_serving.fiber_g * nutritionScale).toFixed(1), "g"],
-                          ["Sugar", +(nutrition.per_serving.sugar_g * nutritionScale).toFixed(1), "g"],
-                          ["Sodium", Math.round(nutrition.per_serving.sodium_mg * nutritionScale), "mg"],
-                        ] as [string, number, string][]).map(([label, value, unit]) => (
-                          <div key={label} style={{
-                            textAlign: "center", padding: "12px 8px",
-                            background: colors.cream, borderRadius: 8,
-                            fontFamily: "system-ui, sans-serif",
-                          }}>
-                            <div style={{ fontSize: 18, fontWeight: 600, color: colors.green }}>{value}</div>
-                            <div style={{ fontSize: 11, color: colors.muted }}>{label} ({unit})</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
+            {/* Chef's Notes */}
+            {!isFriendView && (
+              <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.borderSoft}`, padding: "20px 24px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                  <h2 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, fontSize: 20, margin: 0 }}>
+                    Chef's Notes
+                  </h2>
+                  <span style={{ fontSize: 11, color: colors.muted, fontFamily: fonts.sans }}>
+                    {notesSaved ? "Saved" : "Saving..."}
+                  </span>
                 </div>
-              )}
-            </div>
-
-            {/* Add to basket */}
-            <button
-              onClick={handleAddToBasket}
-              style={{
-                background: addedToBasket ? colors.greenLight : colors.white,
-                border: `1px solid ${addedToBasket ? colors.green : colors.border}`,
-                borderRadius: 10, padding: "12px 20px", fontSize: 14, fontWeight: 600,
-                color: addedToBasket ? colors.green : colors.text, cursor: "pointer",
-                fontFamily: "system-ui, sans-serif", width: "100%",
-                transition: "all 0.2s",
-              }}
-            >
-              {addedToBasket ? "Added to basket ✓" : "Add ingredients to basket"}
-            </button>
-
-            {/* Cost estimate */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
-              <button
-                onClick={handleShowCost}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  fontFamily: "Georgia, serif", color: colors.text, fontSize: 18,
-                  display: "flex", alignItems: "center", gap: 8, width: "100%", padding: 0,
-                }}
-              >
-                Cost Estimate
-                <span style={{ fontSize: 12, color: colors.muted, fontFamily: "system-ui, sans-serif" }}>
-                  {showCost ? "▲" : "▼"}
-                </span>
-              </button>
-              {showCost && (
-                <div style={{ marginTop: 16 }}>
-                  {costLoading ? <LoadingSpinner label="Estimating cost..." /> : cost ? (
-                    <div style={{ fontFamily: "system-ui, sans-serif" }}>
-                      <div style={{ display: "flex", gap: 24, marginBottom: 16 }}>
-                        <div style={{ textAlign: "center", padding: "12px 20px", background: colors.cream, borderRadius: 8, flex: 1 }}>
-                          <div style={{ fontSize: 24, fontWeight: 600, color: colors.green }}>
-                            {cost.currency === "GBP" ? "£" : cost.currency === "USD" ? "$" : "€"}{cost.per_serving.toFixed(2)}
-                          </div>
-                          <div style={{ fontSize: 12, color: colors.muted }}>per serving</div>
-                        </div>
-                        <div style={{ textAlign: "center", padding: "12px 20px", background: colors.cream, borderRadius: 8, flex: 1 }}>
-                          <div style={{ fontSize: 24, fontWeight: 600, color: colors.text }}>
-                            {cost.currency === "GBP" ? "£" : cost.currency === "USD" ? "$" : "€"}{cost.total.toFixed(2)}
-                          </div>
-                          <div style={{ fontSize: 12, color: colors.muted }}>total</div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            {/* Notes */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.border}`, padding: "20px 24px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <h2 style={{ fontFamily: "Georgia, serif", color: colors.text, fontSize: 18, margin: 0 }}>
-                  Notes
-                </h2>
-                <span style={{ fontSize: 11, color: colors.muted, fontFamily: "system-ui, sans-serif" }}>
-                  {notesSaved ? "Saved" : "Saving..."}
-                </span>
+                <textarea
+                  value={notes}
+                  onChange={e => handleNotesChange(e.target.value)}
+                  placeholder="Tips, tweaks, what you'd change next time..."
+                  style={{
+                    width: "100%", minHeight: 100, padding: 12,
+                    border: `1px solid ${colors.border}`, borderRadius: 8,
+                    fontSize: 14, fontFamily: fonts.sans,
+                    lineHeight: 1.6, color: colors.text, outline: "none",
+                    resize: "vertical", boxSizing: "border-box",
+                    background: colors.cream,
+                  }}
+                />
               </div>
-              <textarea
-                value={notes}
-                onChange={e => handleNotesChange(e.target.value)}
-                placeholder="Add your notes here — tips, tweaks, what you'd change next time..."
-                style={{
-                  width: "100%", minHeight: 100, padding: 12,
-                  border: `1px solid ${colors.border}`, borderRadius: 8,
-                  fontSize: 14, fontFamily: "system-ui, sans-serif",
-                  lineHeight: 1.6, color: colors.text, outline: "none",
-                  resize: "vertical", boxSizing: "border-box",
-                  background: colors.cream,
-                }}
-              />
-            </div>
-            </>)}
+            )}
 
           </div>
         )}
