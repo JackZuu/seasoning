@@ -93,6 +93,16 @@ class RecipeListItem(BaseModel):
     image_url: Optional[str] = None
     created_at: datetime
 
+class AppliedSeasoning(BaseModel):
+    key: str
+    label: str
+    reasoning: dict[str, str] = {}
+
+class WorkingState(BaseModel):
+    ingredients: list[Ingredient]
+    instructions: list[InstructionStep]
+    applied_seasonings: list[AppliedSeasoning] = []
+
 class RecipeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -104,6 +114,7 @@ class RecipeResponse(BaseModel):
     instructions: list[InstructionStep]
     image_url: Optional[str] = None
     notes: Optional[str] = ""
+    working_state: Optional[WorkingState] = None
     created_at: datetime
 
 
@@ -127,6 +138,9 @@ class RecipeUpdateNotes(BaseModel):
 class TransformRequest(BaseModel):
     transformation: Literal["veggie", "vegan", "seasonal", "eco", "cheaper", "luxurious", "personalise"]
     dietary_requirements: list[str] = []
+    # Optional: apply transform on top of these instead of the saved original
+    base_ingredients: Optional[list[Ingredient]] = None
+    base_instructions: Optional[list[InstructionStep]] = None
 
 class TransformResponse(BaseModel):
     ingredients: list[Ingredient]
@@ -137,11 +151,24 @@ class SubstitutionRequest(BaseModel):
     ingredient_item: str
     recipe_title: str
     dietary_requirements: list[str] = []
+    custom_constraint: Optional[str] = None
+    base_ingredients: Optional[list[Ingredient]] = None
+
+class SubstitutionOption(BaseModel):
+    substitute: str
+    tag: str
+    reasoning: str
 
 class SubstitutionResponse(BaseModel):
     original: str
     substitute: str
     reasoning: str
+    options: list[SubstitutionOption] = []
+
+class WorkingStatePut(BaseModel):
+    ingredients: list[Ingredient]
+    instructions: list[InstructionStep]
+    applied_seasonings: list[AppliedSeasoning] = []
 
 
 # ─── Nutrition ────────────────────────────────────────────────────────────────
@@ -178,6 +205,14 @@ class ImpactResponse(BaseModel):
     rating: Literal["low", "medium", "high"]
     summary: str
     breakdown: list[dict]
+
+
+# ─── Recipe analysis overrides (cost / nutrition / impact) ───────────────────
+
+class RecipeAnalysisRequest(BaseModel):
+    ingredients: Optional[list[Ingredient]] = None
+    instructions: Optional[list[InstructionStep]] = None
+    servings: Optional[int] = None
 
 
 # ─── Larder ───────────────────────────────────────────────────────────────────

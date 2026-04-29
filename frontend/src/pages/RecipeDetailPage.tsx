@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -13,7 +13,9 @@ import { colors, fonts } from "../theme";
 import {
   getRecipe, convertRecipe, updateNotes, uploadRecipeImage,
   transformRecipe, substituteIngredient, getNutrition, estimateCost, estimateImpact,
-  Recipe, Ingredient, TransformResponse, SubstitutionResponse,
+  putWorkingState, clearWorkingState,
+  Recipe, Ingredient, InstructionStep,
+  AppliedSeasoning, SubstitutionResponse,
   NutritionResponse, CostResponse, ImpactResponse,
 } from "../api/recipes";
 import { addRecipeToBasket } from "../api/basket";
@@ -23,7 +25,7 @@ import { useAuth } from "../context/AuthContext";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatQuantity(q: number | null): string {
-  if (q === null) return "";
+  if (q === null || Number.isNaN(q)) return "";
   const fractions: [number, string][] = [
     [0.125, "⅛"], [0.25, "¼"], [0.333, "⅓"], [0.5, "½"],
     [0.667, "⅔"], [0.75, "¾"],
@@ -69,63 +71,140 @@ function currencySymbol(code: string) {
   return code === "GBP" ? "£" : code === "USD" ? "$" : code === "EUR" ? "€" : code;
 }
 
+interface SwapEntry {
+  before: Ingredient;
+  reason?: string;
+}
+
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-function IngredientRow({ ing, scaleFactor, substitution, onSubstitute, substituting, readOnly }: {
+interface IngredientRowProps {
   ing: Ingredient;
+  index: number;
   scaleFactor: number;
-  substitution?: SubstitutionResponse;
-  onSubstitute: () => void;
-  substituting: boolean;
+  swap?: SwapEntry;
+  onOpenSwap: () => void;
+  onRevertSwap: () => void;
+  onStartEdit: () => void;
+  isEditing: boolean;
+  editText: string;
+  onEditTextChange: (v: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  swapOpenForThis: boolean;
+  swapBtnRef: React.RefObject<HTMLButtonElement>;
   readOnly?: boolean;
-}) {
-  const scaledQty = ing.quantity !== null ? ing.quantity * scaleFactor : null;
+}
 
-  if (substitution) {
-    return (
-      <li style={{ padding: "10px 0", borderBottom: `1px solid ${colors.borderSoft}`, fontFamily: fonts.sans, fontSize: 14 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span style={{ color: colors.green, fontWeight: 500 }}>↻</span>
-          <span style={{ color: colors.green, fontWeight: 500 }}>{substitution.substitute}</span>
-        </div>
-        <div style={{ fontSize: 12, color: colors.muted, marginTop: 4, paddingLeft: 20, lineHeight: 1.5 }}>
-          {substitution.reasoning}
-        </div>
-      </li>
-    );
-  }
+function IngredientRow({
+  ing, index, scaleFactor, swap, onOpenSwap, onRevertSwap,
+  onStartEdit, isEditing, editText, onEditTextChange, onSaveEdit, onCancelEdit,
+  swapOpenForThis, swapBtnRef, readOnly,
+}: IngredientRowProps) {
+  const scaledQty = ing.quantity !== null && ing.quantity !== undefined && !Number.isNaN(ing.quantity)
+    ? ing.quantity * scaleFactor : null;
+
+  const itemHasLeadingNumber = /^\s*[\d½⅓⅔¼¾⅛⅜⅝⅞⅙⅚⅕⅖⅗⅘]/.test(ing.item || "");
+  const showQtyCol = scaledQty !== null || (ing.unit && !itemHasLeadingNumber);
 
   return (
-    <li style={{
-      display: "flex", gap: 8, padding: "10px 0",
-      borderBottom: `1px solid ${colors.borderSoft}`,
-      fontFamily: fonts.sans, fontSize: 14,
-      color: colors.text, alignItems: "baseline",
-    }}>
+    <div
+      data-ingredient-index={index}
+      style={{
+        display: "flex", gap: 8, padding: "10px 0",
+        borderBottom: `1px solid ${colors.borderSoft}`,
+        fontFamily: fonts.sans, fontSize: 14,
+        color: colors.text, alignItems: "baseline",
+        position: "relative",
+      }}
+    >
       <span style={{ minWidth: 60, fontWeight: 500, color: colors.green }}>
         {scaledQty !== null ? formatQuantity(scaledQty) : ""}
-        {ing.unit ? ` ${ing.unit}` : ""}
+        {showQtyCol && ing.unit ? ` ${ing.unit}` : ""}
       </span>
+
       <span style={{ flex: 1 }}>
-        {ing.item}
-        {ing.preparation ? <span style={{ color: colors.muted }}>, {ing.preparation}</span> : null}
-        {ing.notes ? <span style={{ color: colors.muted }}> ({ing.notes})</span> : null}
+        {isEditing ? (
+          <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              autoFocus
+              value={editText}
+              onChange={e => onEditTextChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") onSaveEdit();
+                if (e.key === "Escape") onCancelEdit();
+              }}
+              placeholder="e.g. 200g chicken thighs"
+              style={{
+                flex: 1, padding: "6px 10px", border: `1px solid ${colors.green}`,
+                borderRadius: 6, fontSize: 14, fontFamily: fonts.sans, outline: "none",
+              }}
+            />
+            <button onClick={onSaveEdit}
+              style={{ background: colors.green, color: colors.white, border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: fonts.sans, fontWeight: 600 }}>
+              Save
+            </button>
+            <button onClick={onCancelEdit}
+              style={{ background: "none", color: colors.muted, border: `1px solid ${colors.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontFamily: fonts.sans }}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <>
+            {ing.item}
+            {ing.preparation ? <span style={{ color: colors.muted }}>, {ing.preparation}</span> : null}
+            {ing.notes ? <span style={{ color: colors.muted }}> ({ing.notes})</span> : null}
+            {swap && (
+              <button
+                onClick={onRevertSwap}
+                title={`Revert to ${swap.before.item}`}
+                style={{
+                  marginLeft: 8, padding: "1px 8px", borderRadius: 999,
+                  border: `1px solid ${colors.green}`, background: colors.greenLight,
+                  color: colors.green, fontSize: 11, fontWeight: 600,
+                  cursor: "pointer", fontFamily: fonts.sans,
+                }}
+              >
+                ↺ Revert
+              </button>
+            )}
+          </>
+        )}
       </span>
-      {!readOnly && (
-        <button
-          onClick={onSubstitute}
-          disabled={substituting}
-          title="Don't have this? Swap it."
-          style={{
-            background: "none", border: `1px solid ${colors.border}`, borderRadius: 6,
-            padding: "3px 8px", fontSize: 11, color: colors.muted, cursor: "pointer",
-            whiteSpace: "nowrap", flexShrink: 0, fontFamily: fonts.sans,
-          }}
-        >
-          {substituting ? "..." : "Swap?"}
-        </button>
+
+      {!readOnly && !isEditing && (
+        <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+          <button
+            onClick={onStartEdit}
+            title="Edit this ingredient"
+            aria-label="Edit ingredient"
+            style={{
+              background: "none", border: `1px solid ${colors.borderSoft}`, borderRadius: 6,
+              padding: "3px 7px", fontSize: 12, color: colors.muted, cursor: "pointer",
+              fontFamily: fonts.sans, lineHeight: 1,
+            }}
+          >
+            ✎
+          </button>
+          <button
+            ref={swapOpenForThis ? swapBtnRef : null}
+            onClick={onOpenSwap}
+            title="Swap this ingredient"
+            style={{
+              background: swapOpenForThis ? colors.greenLight : "none",
+              border: `1px solid ${swapOpenForThis ? colors.green : colors.border}`,
+              borderRadius: 6,
+              padding: "3px 8px", fontSize: 11,
+              color: swapOpenForThis ? colors.green : colors.muted,
+              cursor: "pointer", whiteSpace: "nowrap",
+              fontFamily: fonts.sans,
+            }}
+          >
+            Swap
+          </button>
+        </span>
       )}
-    </li>
+    </div>
   );
 }
 
@@ -169,20 +248,31 @@ export default function RecipeDetailPage() {
   // Servings
   const [adjustedServings, setAdjustedServings] = useState<number | null>(null);
 
-  // Ingredients / units
+  // Working state — what's currently displayed
   const [displayIngredients, setDisplayIngredients] = useState<Ingredient[]>([]);
+  const [displayInstructions, setDisplayInstructions] = useState<InstructionStep[]>([]);
+  const [appliedSeasonings, setAppliedSeasonings] = useState<AppliedSeasoning[]>([]);
+  const [swaps, setSwaps] = useState<Record<number, SwapEntry>>({});
+
+  // Units
   const [unitSystem, setUnitSystem] = useState<"us_customary" | "metric">("us_customary");
   const [converting, setConverting] = useState(false);
 
-  // Transformations
-  const [activeTransform, setActiveTransform] = useState<string | null>(null);
-  const [transformData, setTransformData] = useState<TransformResponse | null>(null);
-  const [transforming, setTransforming] = useState(false);
+  // Transformation in flight
+  const [transformingKey, setTransformingKey] = useState<string | null>(null);
   const [dietaryReqs, setDietaryReqs] = useState<string[]>([]);
 
-  // Substitutions
-  const [substitutions, setSubstitutions] = useState<Record<string, SubstitutionResponse>>({});
-  const [substitutingItem, setSubstitutingItem] = useState<string | null>(null);
+  // Substitution
+  const [swapOpenIndex, setSwapOpenIndex] = useState<number | null>(null);
+  const [swapData, setSwapData] = useState<SubstitutionResponse | null>(null);
+  const [swapLoading, setSwapLoading] = useState(false);
+  const [customSwapText, setCustomSwapText] = useState("");
+  const [customSwapMode, setCustomSwapMode] = useState(false);
+  const swapBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Inline editing
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
 
   // Notes
   const [notes, setNotes] = useState("");
@@ -219,15 +309,36 @@ export default function RecipeDetailPage() {
     loader
       .then(r => {
         setRecipe(r);
-        setDisplayIngredients(r.ingredients);
+        if (!isFriendView && r.working_state) {
+          setDisplayIngredients(r.working_state.ingredients);
+          setDisplayInstructions(r.working_state.instructions);
+          setAppliedSeasonings(r.working_state.applied_seasonings || []);
+        } else {
+          setDisplayIngredients(r.ingredients);
+          setDisplayInstructions(r.instructions);
+          setAppliedSeasonings([]);
+        }
         setNotes(r.notes || "");
         setAdjustedServings(r.servings);
-        const first = r.ingredients[0];
+        const first = (r.working_state?.ingredients || r.ingredients)[0];
         if (first) setUnitSystem(first.unit_system);
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [effectiveId, isFriendView, friendId]);
+
+  // ─── Cache invalidation: clear cost/nutrition/impact whenever the
+  //     displayed ingredients change. We compare a stable signature so the
+  //     effect doesn't fire on every re-render.
+  const ingredientsSignature = useMemo(
+    () => JSON.stringify(displayIngredients.map(i => [i.quantity, i.unit, i.item])),
+    [displayIngredients]
+  );
+  useEffect(() => {
+    setNutrition(null);
+    setCost(null);
+    setImpact(null);
+  }, [ingredientsSignature]);
 
   async function handleCopyToMine() {
     if (!recipe) return;
@@ -239,6 +350,34 @@ export default function RecipeDetailPage() {
       alert("Failed to save: " + e.message);
     } finally {
       setSavingCopy(false);
+    }
+  }
+
+  // ─── Persist working state ───────────────────────────────────────────────
+
+  async function persistWorkingState(
+    ings: Ingredient[],
+    insts: InstructionStep[],
+    seasonings: AppliedSeasoning[],
+  ) {
+    if (!recipe || isFriendView) return;
+    try {
+      await putWorkingState(recipe.id, {
+        ingredients: ings,
+        instructions: insts,
+        applied_seasonings: seasonings,
+      });
+    } catch (e: any) {
+      console.error("Failed to persist working state:", e.message);
+    }
+  }
+
+  async function persistOriginal() {
+    if (!recipe || isFriendView) return;
+    try {
+      await clearWorkingState(recipe.id);
+    } catch (e: any) {
+      console.error("Failed to clear working state:", e.message);
     }
   }
 
@@ -257,6 +396,13 @@ export default function RecipeDetailPage() {
       const converted = await convertRecipe(recipe.id, target);
       setDisplayIngredients(converted);
       setUnitSystem(target);
+      // Conversion of the *saved original* — clear seasonings since we no
+      // longer reflect them. (Unit toggle is a destructive op.)
+      if (appliedSeasonings.length || Object.keys(swaps).length) {
+        setAppliedSeasonings([]);
+        setSwaps({});
+        await persistWorkingState(converted, recipe.instructions, []);
+      }
     } catch (e: any) {
       alert("Conversion failed: " + e.message);
     } finally {
@@ -268,46 +414,166 @@ export default function RecipeDetailPage() {
 
   async function handleTransform(type: string) {
     if (!recipe) return;
-    if (activeTransform === type) {
-      showOriginal();
+    // No-op if already applied — show shaded state in menu instead
+    if (appliedSeasonings.some(s => s.key === type)) {
+      setOpenPopover(null);
       return;
     }
-    setTransforming(true);
-    setActiveTransform(type);
-    setOpenPopover(null);
+    setTransformingKey(type);
     try {
-      const data = await transformRecipe(recipe.id, type, dietaryReqs);
-      setTransformData(data);
+      const data = await transformRecipe(recipe.id, type, dietaryReqs, {
+        ingredients: displayIngredients,
+        instructions: displayInstructions,
+      });
+      const t = TRANSFORMATIONS.find(t => t.key === type);
+      const newSeasoning: AppliedSeasoning = {
+        key: type,
+        label: t?.label || type,
+        reasoning: data.reasoning,
+      };
+      const next = [...appliedSeasonings, newSeasoning];
       setDisplayIngredients(data.ingredients);
+      setDisplayInstructions(data.instructions);
+      setAppliedSeasonings(next);
+      setSwaps({}); // ingredient slots have changed; per-slot swaps no longer apply
+      setOpenPopover(null);
+      await persistWorkingState(data.ingredients, data.instructions, next);
     } catch (e: any) {
-      setActiveTransform(null);
       alert("Transformation failed: " + e.message);
     } finally {
-      setTransforming(false);
+      setTransformingKey(null);
     }
   }
 
-  function showOriginal() {
+  async function showOriginal() {
     if (!recipe) return;
-    setActiveTransform(null);
-    setTransformData(null);
+    setAppliedSeasonings([]);
     setDisplayIngredients(recipe.ingredients);
-    setSubstitutions({});
+    setDisplayInstructions(recipe.instructions);
+    setSwaps({});
+    setOpenPopover(null);
+    await persistOriginal();
   }
 
-  // ─── Substitution ────────────────────────────────────────────────────────
+  // ─── Ingredient swap ─────────────────────────────────────────────────────
 
-  async function handleSubstitute(item: string) {
+  async function fetchSwapOptions(ingredient: Ingredient, customConstraint?: string) {
     if (!recipe) return;
-    setSubstitutingItem(item);
+    setSwapLoading(true);
+    setSwapData(null);
     try {
-      const data = await substituteIngredient(recipe.id, item, recipe.title, dietaryReqs);
-      setSubstitutions(prev => ({ ...prev, [item]: data }));
+      const data = await substituteIngredient(
+        recipe.id,
+        ingredient.item,
+        recipe.title,
+        dietaryReqs,
+        customConstraint,
+        displayIngredients,
+      );
+      setSwapData(data);
     } catch (e: any) {
-      alert("Substitution failed: " + e.message);
+      alert("Could not fetch alternatives: " + e.message);
     } finally {
-      setSubstitutingItem(null);
+      setSwapLoading(false);
     }
+  }
+
+  function openSwapFor(index: number) {
+    if (swapOpenIndex === index) {
+      // Toggle closed
+      setSwapOpenIndex(null);
+      setSwapData(null);
+      setCustomSwapMode(false);
+      setCustomSwapText("");
+      return;
+    }
+    setSwapOpenIndex(index);
+    setCustomSwapMode(false);
+    setCustomSwapText("");
+    fetchSwapOptions(displayIngredients[index]);
+  }
+
+  function closeSwap() {
+    setSwapOpenIndex(null);
+    setSwapData(null);
+    setCustomSwapMode(false);
+    setCustomSwapText("");
+  }
+
+  function applySwap(index: number, substituteText: string) {
+    if (!recipe) return;
+    const before = displayIngredients[index];
+    const after: Ingredient = {
+      ...before,
+      // Stuff the substitute into the item field; clear quantity/unit so the
+      // suggestion's own embedded quantity/unit is what shows.
+      quantity: null,
+      unit: null,
+      item: substituteText,
+      preparation: "",
+      notes: "",
+    };
+    const nextIngs = displayIngredients.map((ing, i) => i === index ? after : ing);
+    const nextSwaps = { ...swaps };
+    // Only record the original "before" the FIRST time this slot is swapped,
+    // so revert always returns to the recipe's pre-swap state.
+    if (!nextSwaps[index]) nextSwaps[index] = { before };
+    setDisplayIngredients(nextIngs);
+    setSwaps(nextSwaps);
+    closeSwap();
+    persistWorkingState(nextIngs, displayInstructions, appliedSeasonings);
+  }
+
+  function revertSwap(index: number) {
+    const entry = swaps[index];
+    if (!entry) return;
+    const nextIngs = displayIngredients.map((ing, i) => i === index ? entry.before : ing);
+    const { [index]: _removed, ...rest } = swaps;
+    setDisplayIngredients(nextIngs);
+    setSwaps(rest);
+    persistWorkingState(nextIngs, displayInstructions, appliedSeasonings);
+  }
+
+  // ─── Inline edit ─────────────────────────────────────────────────────────
+
+  function startEdit(index: number) {
+    const ing = displayIngredients[index];
+    const qtyStr = ing.quantity !== null && ing.quantity !== undefined
+      ? formatQuantity(ing.quantity) : "";
+    const parts = [qtyStr, ing.unit || "", ing.item, ing.preparation ? `, ${ing.preparation}` : ""].filter(Boolean);
+    setEditText(parts.join(" ").replace(" ,", ",").trim());
+    setEditingIndex(index);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setEditText("");
+  }
+
+  function saveEdit() {
+    if (editingIndex === null) return;
+    const text = editText.trim();
+    if (!text) {
+      cancelEdit();
+      return;
+    }
+    const before = displayIngredients[editingIndex];
+    const after: Ingredient = {
+      ...before,
+      quantity: null,
+      unit: null,
+      item: text,
+      preparation: "",
+      notes: "",
+    };
+    const nextIngs = displayIngredients.map((ing, i) => i === editingIndex ? after : ing);
+    const nextSwaps = { ...swaps };
+    if (!nextSwaps[editingIndex]) nextSwaps[editingIndex] = { before };
+    setDisplayIngredients(nextIngs);
+    setSwaps(nextSwaps);
+    setEditingIndex(null);
+    setEditText("");
+    persistWorkingState(nextIngs, displayInstructions, appliedSeasonings);
   }
 
   // ─── Notes auto-save ─────────────────────────────────────────────────────
@@ -329,18 +595,52 @@ export default function RecipeDetailPage() {
     notesTimerRef.current = setTimeout(() => saveNotes(value), 1500);
   }
 
-  // ─── Nutrition ────────────────────────────────────────────────────────────
+  // ─── Nutrition / Cost / Impact (always against current display) ──────────
+
+  function buildOverride() {
+    return {
+      ingredients: displayIngredients,
+      instructions: displayInstructions,
+      servings: adjustedServings ?? recipe?.servings ?? undefined,
+    };
+  }
 
   async function ensureNutrition() {
     if (!recipe || nutrition || nutritionLoading) return;
     setNutritionLoading(true);
     try {
-      const data = await getNutrition(recipe.id);
+      const data = await getNutrition(recipe.id, buildOverride());
       setNutrition(data);
     } catch (e: any) {
       alert("Could not get nutrition: " + e.message);
     } finally {
       setNutritionLoading(false);
+    }
+  }
+
+  async function ensureCost() {
+    if (!recipe || cost || costLoading) return;
+    setCostLoading(true);
+    try {
+      const data = await estimateCost(recipe.id, buildOverride());
+      setCost(data);
+    } catch (e: any) {
+      alert("Could not estimate cost: " + e.message);
+    } finally {
+      setCostLoading(false);
+    }
+  }
+
+  async function ensureImpact() {
+    if (!recipe || impact || impactLoading) return;
+    setImpactLoading(true);
+    try {
+      const data = await estimateImpact(recipe.id, buildOverride());
+      setImpact(data);
+    } catch (e: any) {
+      alert("Could not estimate impact: " + e.message);
+    } finally {
+      setImpactLoading(false);
     }
   }
 
@@ -359,42 +659,12 @@ export default function RecipeDetailPage() {
     }
   }
 
-  // ─── Cost ──────────────────────────────────────────────────────────────
-
-  async function ensureCost() {
-    if (!recipe || cost || costLoading) return;
-    setCostLoading(true);
-    try {
-      const data = await estimateCost(recipe.id);
-      setCost(data);
-    } catch (e: any) {
-      alert("Could not estimate cost: " + e.message);
-    } finally {
-      setCostLoading(false);
-    }
-  }
-
-  // ─── Impact ────────────────────────────────────────────────────────────
-
-  async function ensureImpact() {
-    if (!recipe || impact || impactLoading) return;
-    setImpactLoading(true);
-    try {
-      const data = await estimateImpact(recipe.id);
-      setImpact(data);
-    } catch (e: any) {
-      alert("Could not estimate impact: " + e.message);
-    } finally {
-      setImpactLoading(false);
-    }
-  }
-
   // ─── Basket ────────────────────────────────────────────────────────────
 
   async function handleAddToBasket() {
     if (!recipe) return;
     try {
-      const result = await addRecipeToBasket(recipe.id, ingredientsToShow);
+      const result = await addRecipeToBasket(recipe.id, displayIngredients);
       setBasketFeedback({ added: result.added, skipped: result.skipped_in_larder });
       setTimeout(() => setBasketFeedback(null), 5000);
     } catch (e: any) {
@@ -421,13 +691,12 @@ export default function RecipeDetailPage() {
     ? new Date(recipe.created_at).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
     : "";
 
-  const ingredientsToShow = transformData ? transformData.ingredients : displayIngredients;
-  const instructionsToShow = transformData ? transformData.instructions : (recipe?.instructions || []);
-
   const nutritionScale = (nutrition && adjustedServings && nutrition.servings)
     ? adjustedServings / nutrition.servings : 1;
 
-  const activeTransformLabel = TRANSFORMATIONS.find(t => t.key === activeTransform)?.label;
+  const isApplied = (key: string) => appliedSeasonings.some(s => s.key === key);
+
+  const allReasoning: { key: string; label: string; reasoning: Record<string, string> }[] = appliedSeasonings;
 
   return (
     <div style={{ minHeight: "100vh", background: colors.cream, display: "flex", flexDirection: "column" }}>
@@ -486,14 +755,16 @@ export default function RecipeDetailPage() {
               </div>
               <div style={{ display: "flex", gap: 16, color: colors.muted, fontSize: 13, fontFamily: fonts.sans, alignItems: "center", flexWrap: "wrap" }}>
                 <span>Added {date}</span>
-                {!isFriendView && !recipe.image_url && (
+                {!isFriendView && (
                   <>
                     <button
                       onClick={() => imageInputRef.current?.click()}
                       disabled={uploadingImage}
                       style={{ background: "none", border: `1px solid ${colors.border}`, borderRadius: 6, padding: "3px 10px", fontSize: 12, color: colors.muted, cursor: "pointer", fontFamily: fonts.sans }}
                     >
-                      {uploadingImage ? "Uploading..." : "Add photo"}
+                      {uploadingImage
+                        ? "Uploading..."
+                        : recipe.image_url ? "Replace photo" : "Add photo"}
                     </button>
                     <input ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }}
                       onChange={e => { if (e.target.files?.[0]) handleImageUpload(e.target.files[0]); }} />
@@ -578,17 +849,17 @@ export default function RecipeDetailPage() {
                 {/* Season */}
                 {!isFriendView && (
                   <div style={{ position: "relative", display: "inline-flex" }}>
-                    <Tooltip label="Season this recipe: personalise, veggie, vegan, seasonal, cheaper, and more" disabled={openPopover === "season"}>
+                    <Tooltip label="Season this recipe: stack veggie, cheaper, seasonal, and more" disabled={openPopover === "season"}>
                       <button
                         ref={seasonBtnRef}
                         onClick={() => togglePopover("season")}
-                        style={activeTransform ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN}
+                        style={appliedSeasonings.length ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN}
                       >
-                        <span style={{ color: activeTransform ? colors.green : colors.green, display: "flex" }}>
+                        <span style={{ color: colors.green, display: "flex" }}>
                           <SaltShakerLogo size={16} color="currentColor" strokeWidth={2} />
                         </span>
                         <span>Season</span>
-                        {activeTransformLabel && (
+                        {appliedSeasonings.length > 0 && (
                           <span
                             style={{
                               display: "inline-flex", alignItems: "center", gap: 4,
@@ -596,10 +867,8 @@ export default function RecipeDetailPage() {
                               fontSize: 11, fontWeight: 600, padding: "2px 8px",
                               borderRadius: 999,
                             }}
-                            onClick={e => { e.stopPropagation(); showOriginal(); }}
                           >
-                            {activeTransformLabel}
-                            <CloseIcon size={11} />
+                            {appliedSeasonings.length} applied
                           </span>
                         )}
                         <ChevronIcon />
@@ -616,12 +885,12 @@ export default function RecipeDetailPage() {
                         {/* Personalise — featured at the top */}
                         {(() => {
                           const t = findTransform("personalise")!;
-                          const active = activeTransform === "personalise";
+                          const active = isApplied("personalise");
                           return (
                             <Tooltip label={t.tooltip} placement="top">
                               <button
                                 onClick={() => handleTransform(t.key)}
-                                disabled={transforming}
+                                disabled={!!transformingKey || active}
                                 style={{
                                   width: "100%",
                                   padding: "12px 14px", borderRadius: 10,
@@ -629,14 +898,15 @@ export default function RecipeDetailPage() {
                                   background: active ? colors.green : colors.greenLight,
                                   color: active ? colors.white : colors.green,
                                   fontSize: 14, fontWeight: 600,
-                                  fontFamily: fonts.sans, cursor: "pointer",
+                                  fontFamily: fonts.sans,
+                                  cursor: active ? "default" : "pointer",
                                   display: "flex", alignItems: "center", gap: 8,
                                 }}
                               >
                                 <SaltShakerLogo size={18} color="currentColor" strokeWidth={2} />
                                 Personalise
                                 <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 500, opacity: 0.8 }}>
-                                  Made for you
+                                  {active ? "Applied" : "Made for you"}
                                 </span>
                               </button>
                             </Tooltip>
@@ -653,23 +923,27 @@ export default function RecipeDetailPage() {
                               {group.keys.map(k => {
                                 const t = findTransform(k);
                                 if (!t) return null;
-                                const active = activeTransform === k;
+                                const active = isApplied(k);
+                                const loading = transformingKey === k;
                                 return (
-                                  <Tooltip key={k} label={t.tooltip} placement="top">
+                                  <Tooltip key={k} label={active ? "Already applied" : t.tooltip} placement="top">
                                     <button
                                       onClick={() => handleTransform(k)}
-                                      disabled={transforming}
+                                      disabled={!!transformingKey || active}
                                       style={{
                                         width: "100%",
                                         padding: "8px 10px", borderRadius: 8,
-                                        border: active ? "none" : `1px solid ${colors.borderSoft}`,
-                                        background: active ? colors.green : colors.white,
-                                        color: active ? colors.white : colors.text,
+                                        border: active ? `1px solid ${colors.green}` : `1px solid ${colors.borderSoft}`,
+                                        background: active ? colors.greenLight : colors.white,
+                                        color: active ? colors.green : colors.text,
                                         fontSize: 13, fontWeight: active ? 600 : 500,
-                                        fontFamily: fonts.sans, cursor: "pointer", textAlign: "left",
+                                        fontFamily: fonts.sans,
+                                        cursor: active ? "default" : "pointer",
+                                        textAlign: "left",
                                       }}
                                     >
-                                      {t.label}
+                                      {loading ? "..." : t.label}
+                                      {active && <span style={{ marginLeft: 6 }}>✓</span>}
                                     </button>
                                   </Tooltip>
                                 );
@@ -702,7 +976,7 @@ export default function RecipeDetailPage() {
                           })}
                         </div>
 
-                        {activeTransform && (
+                        {appliedSeasonings.length > 0 && (
                           <>
                             <div style={{ height: 1, background: colors.borderSoft, margin: "14px 0" }} />
                             <button
@@ -724,7 +998,7 @@ export default function RecipeDetailPage() {
 
                 {/* Nutrition */}
                 <div style={{ position: "relative", display: "inline-flex" }}>
-                  <Tooltip label="Nutritional info per serving" disabled={openPopover === "nutrition"}>
+                  <Tooltip label="Nutritional info per serving (uses the current recipe state)" disabled={openPopover === "nutrition"}>
                     <button
                       ref={nutritionBtnRef}
                       onClick={() => togglePopover("nutrition")}
@@ -880,10 +1154,8 @@ export default function RecipeDetailPage() {
                   </Popover>
                 </div>
 
-                {/* Spacer pushes basket right */}
                 <div style={{ flex: 1 }} />
 
-                {/* Add to basket */}
                 {!isFriendView && (
                   <Tooltip label="Add these ingredients to your shopping basket (skips anything in your larder)" placement="top">
                     <button
@@ -900,7 +1172,27 @@ export default function RecipeDetailPage() {
               </div>
             </div>
 
-            {/* Basket dedup feedback */}
+            {/* Applied seasonings as removable chips */}
+            {appliedSeasonings.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: colors.muted, fontFamily: fonts.sans }}>Applied:</span>
+                {appliedSeasonings.map(s => (
+                  <span
+                    key={s.key}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      background: colors.greenLight, color: colors.green,
+                      fontSize: 12, fontWeight: 600, padding: "3px 10px",
+                      borderRadius: 999, border: `1px solid ${colors.green}`,
+                      fontFamily: fonts.sans,
+                    }}
+                  >
+                    {s.label}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {basketFeedback && (
               <div
                 role="status"
@@ -925,10 +1217,10 @@ export default function RecipeDetailPage() {
               </div>
             )}
 
-            {transforming && <LoadingSpinner label="Seasoning the recipe..." />}
+            {transformingKey && <LoadingSpinner label="Seasoning the recipe..." />}
 
-            {/* Transformation reasoning */}
-            {transformData && Object.keys(transformData.reasoning).length > 0 && (
+            {/* Combined reasoning from all applied seasonings */}
+            {allReasoning.length > 0 && allReasoning.some(s => Object.keys(s.reasoning || {}).length > 0) && (
               <div style={{
                 background: colors.greenLight, borderRadius: 12, border: `1px solid ${colors.border}`,
                 padding: "14px 20px", fontFamily: fonts.sans,
@@ -936,30 +1228,57 @@ export default function RecipeDetailPage() {
                 <h4 style={{ fontSize: 13, fontWeight: 600, color: colors.green, marginBottom: 8 }}>
                   Changes made
                 </h4>
-                {Object.entries(transformData.reasoning).map(([change, reason]) => (
-                  <div key={change} style={{ fontSize: 13, color: colors.text, marginBottom: 6, lineHeight: 1.5 }}>
-                    <strong>{change}</strong>, {reason}
-                  </div>
+                {allReasoning.map(s => (
+                  Object.entries(s.reasoning || {}).map(([change, reason]) => (
+                    <div key={`${s.key}-${change}`} style={{ fontSize: 13, color: colors.text, marginBottom: 6, lineHeight: 1.5 }}>
+                      <strong>{change}</strong> ({s.label.toLowerCase()}), {reason}
+                    </div>
+                  ))
                 ))}
               </div>
             )}
 
             {/* Ingredients */}
-            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.borderSoft}`, padding: "20px 24px" }}>
+            <div style={{ background: colors.white, borderRadius: 12, border: `1px solid ${colors.borderSoft}`, padding: "20px 24px", position: "relative" }}>
               <h2 style={{ fontFamily: fonts.serif, fontStyle: "italic", fontWeight: 600, color: colors.text, fontSize: 20, marginBottom: 16 }}>
                 Ingredients
               </h2>
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {ingredientsToShow.map((ing, i) => (
-                  <IngredientRow
-                    key={i}
-                    ing={ing}
-                    scaleFactor={scaleFactor}
-                    substitution={substitutions[ing.item]}
-                    onSubstitute={() => handleSubstitute(ing.item)}
-                    substituting={substitutingItem === ing.item}
-                    readOnly={isFriendView}
-                  />
+                {displayIngredients.map((ing, i) => (
+                  <li key={i} style={{ position: "relative", listStyle: "none" }}>
+                    <IngredientRow
+                      ing={ing}
+                      index={i}
+                      scaleFactor={scaleFactor}
+                      swap={swaps[i]}
+                      onOpenSwap={() => openSwapFor(i)}
+                      onRevertSwap={() => revertSwap(i)}
+                      onStartEdit={() => startEdit(i)}
+                      isEditing={editingIndex === i}
+                      editText={editText}
+                      onEditTextChange={setEditText}
+                      onSaveEdit={saveEdit}
+                      onCancelEdit={cancelEdit}
+                      swapOpenForThis={swapOpenIndex === i}
+                      swapBtnRef={swapBtnRef}
+                      readOnly={isFriendView}
+                    />
+                    {swapOpenIndex === i && (
+                      <SwapPopover
+                        anchorRef={swapBtnRef}
+                        onClose={closeSwap}
+                        ingredient={ing}
+                        loading={swapLoading}
+                        data={swapData}
+                        customMode={customSwapMode}
+                        customText={customSwapText}
+                        onCustomToggle={() => setCustomSwapMode(true)}
+                        onCustomChange={setCustomSwapText}
+                        onCustomSubmit={() => fetchSwapOptions(ing, customSwapText)}
+                        onApply={(text) => applySwap(i, text)}
+                      />
+                    )}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -970,7 +1289,7 @@ export default function RecipeDetailPage() {
                 Instructions
               </h2>
               <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 16 }}>
-                {instructionsToShow.map((step, i) => (
+                {displayInstructions.map((step, i) => (
                   <li key={i} style={{ display: "flex", gap: 14, fontFamily: fonts.sans }}>
                     <span style={{
                       minWidth: 28, height: 28, borderRadius: "50%",
@@ -1024,5 +1343,113 @@ export default function RecipeDetailPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Swap Popover ────────────────────────────────────────────────────────────
+
+interface SwapPopoverProps {
+  anchorRef: React.RefObject<HTMLElement>;
+  onClose: () => void;
+  ingredient: Ingredient;
+  loading: boolean;
+  data: SubstitutionResponse | null;
+  customMode: boolean;
+  customText: string;
+  onCustomToggle: () => void;
+  onCustomChange: (v: string) => void;
+  onCustomSubmit: () => void;
+  onApply: (text: string) => void;
+}
+
+function SwapPopover({
+  anchorRef, onClose, ingredient, loading, data,
+  customMode, customText, onCustomToggle, onCustomChange, onCustomSubmit, onApply,
+}: SwapPopoverProps) {
+  return (
+    <Popover
+      open={true}
+      onClose={onClose}
+      anchorRef={anchorRef}
+      align="end"
+      width={320}
+    >
+      <div style={{ fontFamily: fonts.sans }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: colors.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+          Swap "{ingredient.item}"
+        </div>
+
+        {loading ? (
+          <LoadingSpinner label="Finding alternatives..." />
+        ) : data ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {data.options.map((opt, i) => (
+              <Tooltip key={i} label={opt.reasoning || opt.tag} placement="top">
+                <button
+                  onClick={() => onApply(opt.substitute)}
+                  style={{
+                    width: "100%", padding: "10px 12px", borderRadius: 8,
+                    border: `1px solid ${colors.borderSoft}`, background: colors.white,
+                    color: colors.text, cursor: "pointer", fontFamily: fonts.sans,
+                    textAlign: "left", display: "flex", alignItems: "center", gap: 8,
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = colors.green; e.currentTarget.style.background = colors.greenLight; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = colors.borderSoft; e.currentTarget.style.background = colors.white; }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{opt.substitute}</span>
+                  {opt.tag && (
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: colors.cream, color: colors.green, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                      {opt.tag}
+                    </span>
+                  )}
+                </button>
+              </Tooltip>
+            ))}
+
+            {!customMode ? (
+              <button
+                onClick={onCustomToggle}
+                style={{
+                  width: "100%", padding: "8px 10px", borderRadius: 8,
+                  border: `1px dashed ${colors.border}`, background: "transparent",
+                  color: colors.muted, fontSize: 12, cursor: "pointer", fontFamily: fonts.sans,
+                  textAlign: "left",
+                }}
+              >
+                None of these — describe what you want
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  autoFocus
+                  value={customText}
+                  onChange={e => onCustomChange(e.target.value)}
+                  placeholder="e.g. halal and cheap"
+                  onKeyDown={e => { if (e.key === "Enter" && customText.trim()) onCustomSubmit(); }}
+                  style={{
+                    flex: 1, padding: "6px 10px", border: `1px solid ${colors.green}`,
+                    borderRadius: 6, fontSize: 13, fontFamily: fonts.sans, outline: "none",
+                  }}
+                />
+                <button
+                  onClick={onCustomSubmit}
+                  disabled={!customText.trim()}
+                  style={{
+                    background: colors.green, color: colors.white, border: "none",
+                    borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600,
+                    cursor: customText.trim() ? "pointer" : "default", fontFamily: fonts.sans,
+                    opacity: customText.trim() ? 1 : 0.5,
+                  }}
+                >
+                  Find
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: colors.muted }}>No alternatives.</div>
+        )}
+      </div>
+    </Popover>
   );
 }

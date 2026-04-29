@@ -37,6 +37,7 @@ class Recipe(Base):
     instructions = Column(JSON, nullable=False, default=list)
     image_url = Column(Text, nullable=True)
     notes = Column(Text, nullable=True, default="")
+    working_state = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 

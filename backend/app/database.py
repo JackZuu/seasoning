@@ -39,6 +39,11 @@ def _run_migrations(conn):
     # Recipe columns
     _add_column_if_missing(conn, "recipes", "image_url", "TEXT")
     _add_column_if_missing(conn, "recipes", "notes", "TEXT DEFAULT ''")
+    is_postgres_recipes = "postgresql" in str(conn.engine.url)
+    _add_column_if_missing(
+        conn, "recipes", "working_state",
+        "JSONB" if is_postgres_recipes else "TEXT"
+    )
     # User profile columns
     _add_column_if_missing(conn, "users", "display_name", "VARCHAR")
     _add_column_if_missing(conn, "users", "recipe_book_name", "VARCHAR DEFAULT 'Your Recipe Book'")

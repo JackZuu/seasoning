@@ -185,7 +185,7 @@ async def get_friend_recipes(
             title=r.title,
             servings=r.servings,
             ingredient_count=len(r.ingredients) if r.ingredients else 0,
-            image_url=r.image_url if r.image_url and r.image_url.startswith("http") else None,
+            image_url=r.image_url,
             created_at=r.created_at,
         )
         for r in recipes

@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,9 +14,10 @@ from app.schemas import (
     ConvertRequest, ConvertResponse, Ingredient, InstructionStep,
     RecipeURLParseRequest, RecipeGenerateRequest, RecipeUpdateNotes,
     TransformRequest, TransformResponse,
-    SubstitutionRequest, SubstitutionResponse,
+    SubstitutionRequest, SubstitutionResponse, SubstitutionOption,
     NutritionResponse, NutritionPerServing,
     CostResponse, ImpactResponse,
+    WorkingStatePut, RecipeAnalysisRequest,
 )
 from app.auth import get_current_user
 from app.models import User, Friendship
@@ -84,17 +86,93 @@ def _parse_recipe_text(raw_text: str) -> dict:
 
 
 def _orm_to_response(recipe: Recipe) -> RecipeResponse:
+    # Apply ingredient normalisation at read-time so older records (parsed
+    # before the leading-number fix) display correctly without a migration.
+    ings = _normalise_ingredients(list(recipe.ingredients or []))
+    ws = None
+    if recipe.working_state:
+        ws_data = dict(recipe.working_state)
+        if isinstance(ws_data.get("ingredients"), list):
+            ws_data["ingredients"] = _normalise_ingredients(ws_data["ingredients"])
+        ws = ws_data
     return RecipeResponse(
         id=recipe.id,
         user_id=recipe.user_id,
         title=recipe.title,
         servings=recipe.servings,
-        ingredients=[Ingredient(**i) for i in (recipe.ingredients or [])],
+        ingredients=[Ingredient(**i) for i in ings],
         instructions=[InstructionStep(**s) for s in (recipe.instructions or [])],
         image_url=recipe.image_url,
         notes=recipe.notes or "",
+        working_state=ws,
         created_at=recipe.created_at,
     )
+
+
+# ─── Quantity normalisation for parsed ingredients ──────────────────────────
+# The LLM occasionally leaves a leading number/fraction in `item` and a null
+# `quantity`, which renders as a blank amount. Pull the leading numeric out.
+
+_UNICODE_FRAC = {
+    "½": 0.5, "⅓": 1/3, "⅔": 2/3, "¼": 0.25, "¾": 0.75,
+    "⅕": 0.2, "⅖": 0.4, "⅗": 0.6, "⅘": 0.8,
+    "⅙": 1/6, "⅚": 5/6, "⅛": 0.125, "⅜": 0.375, "⅝": 0.625, "⅞": 0.875,
+}
+
+def _try_parse_qty(token: str) -> float | None:
+    token = token.strip()
+    if not token:
+        return None
+    if token in _UNICODE_FRAC:
+        return _UNICODE_FRAC[token]
+    # "1/2"
+    m = re.fullmatch(r"(\d+)\s*/\s*(\d+)", token)
+    if m and int(m.group(2)) != 0:
+        return int(m.group(1)) / int(m.group(2))
+    # "1 1/2"
+    m = re.fullmatch(r"(\d+)\s+(\d+)\s*/\s*(\d+)", token)
+    if m and int(m.group(3)) != 0:
+        return int(m.group(1)) + int(m.group(2)) / int(m.group(3))
+    # "1 ½"
+    m = re.fullmatch(rf"(\d+)\s+([{''.join(_UNICODE_FRAC.keys())}])", token)
+    if m:
+        return int(m.group(1)) + _UNICODE_FRAC[m.group(2)]
+    try:
+        return float(token)
+    except ValueError:
+        return None
+
+
+def _normalise_ingredients(ings: list[dict]) -> list[dict]:
+    """If quantity is null but item starts with a number/fraction, lift it out."""
+    pattern = re.compile(
+        rf"^\s*((?:\d+\s+\d+\s*/\s*\d+)|(?:\d+\s*/\s*\d+)|(?:\d+\s+[{''.join(_UNICODE_FRAC.keys())}])|"
+        rf"[{''.join(_UNICODE_FRAC.keys())}]|\d+(?:\.\d+)?)\s*(.*)$"
+    )
+    out = []
+    for ing in ings:
+        if not isinstance(ing, dict):
+            continue
+        ing = dict(ing)
+        # Coerce string quantities ("½", "1/2") to floats
+        q = ing.get("quantity")
+        if isinstance(q, str):
+            parsed = _try_parse_qty(q)
+            ing["quantity"] = parsed
+            q = parsed
+        # If quantity is still missing, try the item field
+        if q is None:
+            item = ing.get("item") or ""
+            m = pattern.match(item)
+            if m:
+                parsed = _try_parse_qty(m.group(1))
+                if parsed is not None:
+                    rest = m.group(2).strip()
+                    if rest:
+                        ing["quantity"] = parsed
+                        ing["item"] = rest
+        out.append(ing)
+    return out
 
 
 def _assert_ownership(recipe: Recipe | None, user_id: int):
@@ -103,6 +181,8 @@ def _assert_ownership(recipe: Recipe | None, user_id: int):
 
 
 async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: str | None = None) -> Recipe:
+    if isinstance(data, dict) and isinstance(data.get("ingredients"), list):
+        data["ingredients"] = _normalise_ingredients(data["ingredients"])
     try:
         recipe_data = RecipeCreate(**data)
     except (ValidationError, Exception) as e:
@@ -122,23 +202,49 @@ async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: st
     return recipe
 
 
-def _recipe_to_text(recipe: Recipe) -> str:
-    """Convert a recipe to a text summary for AI context."""
-    lines = [f"Title: {recipe.title}", f"Servings: {recipe.servings or 'unknown'}"]
+def _recipe_to_text(
+    recipe: Recipe,
+    ingredients: list | None = None,
+    instructions: list | None = None,
+    servings: int | None = None,
+) -> str:
+    """Convert a recipe to a text summary for AI context.
+
+    Pass overrides to compute against a transformed/working state instead of
+    the saved original.
+    """
+    ings = ingredients if ingredients is not None else (recipe.ingredients or [])
+    insts = instructions if instructions is not None else (recipe.instructions or [])
+    serves = servings if servings is not None else recipe.servings
+    lines = [f"Title: {recipe.title}", f"Servings: {serves or 'unknown'}"]
     lines.append("\nIngredients:")
-    for ing in (recipe.ingredients or []):
+    for ing in ings:
+        if hasattr(ing, "model_dump"):
+            ing = ing.model_dump()
         qty = ing.get("quantity", "")
         unit = ing.get("unit", "") or ""
         item = ing.get("item", "")
         prep = ing.get("preparation", "")
-        line = f"- {qty} {unit} {item}".strip()
+        line = f"- {qty if qty is not None else ''} {unit} {item}".strip()
         if prep:
             line += f", {prep}"
         lines.append(line)
     lines.append("\nInstructions:")
-    for step in (recipe.instructions or []):
+    for step in insts:
+        if hasattr(step, "model_dump"):
+            step = step.model_dump()
         lines.append(f"{step.get('step', '')}. {step.get('text', '')}")
     return "\n".join(lines)
+
+
+def _resolve_override(req: RecipeAnalysisRequest | None) -> tuple[list | None, list | None, int | None]:
+    if not req:
+        return None, None, None
+    return (
+        [i.model_dump() for i in req.ingredients] if req.ingredients is not None else None,
+        [s.model_dump() for s in req.instructions] if req.instructions is not None else None,
+        req.servings,
+    )
 
 
 # ─── Parse Endpoints ──────────────────────────────────────────────────────────
@@ -278,7 +384,7 @@ async def list_recipes(
             title=r.title,
             servings=r.servings,
             ingredient_count=len(r.ingredients) if r.ingredients else 0,
-            image_url=r.image_url if r.image_url and r.image_url.startswith("http") else None,
+            image_url=r.image_url,
             created_at=r.created_at,
         )
         for r in recipes
@@ -318,6 +424,41 @@ async def update_notes(
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
     recipe.notes = req.notes
+    await db.commit()
+    await db.refresh(recipe)
+    return _orm_to_response(recipe)
+
+
+@router.put("/{recipe_id}/working-state", response_model=RecipeResponse)
+async def put_working_state(
+    recipe_id: int,
+    req: WorkingStatePut,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist the recipe's transformed/edited 'working' state."""
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+    recipe.working_state = {
+        "ingredients": [i.model_dump() for i in req.ingredients],
+        "instructions": [s.model_dump() for s in req.instructions],
+        "applied_seasonings": [a.model_dump() for a in req.applied_seasonings],
+    }
+    await db.commit()
+    await db.refresh(recipe)
+    return _orm_to_response(recipe)
+
+
+@router.delete("/{recipe_id}/working-state", response_model=RecipeResponse)
+async def clear_working_state(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset the recipe to the original ingredients/instructions."""
+    recipe = await db.get(Recipe, recipe_id)
+    _assert_ownership(recipe, current_user.id)
+    recipe.working_state = None
     await db.commit()
     await db.refresh(recipe)
     return _orm_to_response(recipe)
@@ -375,7 +516,9 @@ async def transform_recipe(
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
 
-    recipe_text = _recipe_to_text(recipe)
+    base_ings = [i.model_dump() for i in req.base_ingredients] if req.base_ingredients is not None else None
+    base_insts = [s.model_dump() for s in req.base_instructions] if req.base_instructions is not None else None
+    recipe_text = _recipe_to_text(recipe, ingredients=base_ings, instructions=base_insts)
 
     # Build transformation description from user preferences for "personalise"
     transformation = req.transformation
@@ -431,6 +574,7 @@ async def transform_recipe(
         us = (ing.get("unit_system") or "").strip().lower()
         if us not in ("us_customary", "metric"):
             ing["unit_system"] = "metric" if us in ("metric", "si") else "us_customary"
+    raw_ingredients = _normalise_ingredients(raw_ingredients)
 
     # Normalise reasoning: must be dict[str, str]. Stringify nested values defensively.
     raw_reasoning = data.get("reasoning") or {}
@@ -470,12 +614,16 @@ async def substitute_ingredient(
 
     dietary_str = ", ".join(req.dietary_requirements) if req.dietary_requirements else "None"
 
+    base_ings = [i.model_dump() for i in req.base_ingredients] if req.base_ingredients is not None else None
+
     user_msg = (
         f"Recipe: {req.recipe_title}\n"
-        f"Ingredient I don't have: {req.ingredient_item}\n"
-        f"Dietary requirements: {dietary_str}\n\n"
-        f"Full recipe context:\n{_recipe_to_text(recipe)}"
+        f"Ingredient to swap: {req.ingredient_item}\n"
+        f"Dietary requirements: {dietary_str}\n"
     )
+    if req.custom_constraint:
+        user_msg += f"User's extra constraint: {req.custom_constraint}\n"
+    user_msg += f"\nFull recipe context:\n{_recipe_to_text(recipe, ingredients=base_ings)}"
 
     def _do_substitute():
         result = chat_completion(
@@ -484,7 +632,7 @@ async def substitute_ingredient(
                 {"role": "user", "content": user_msg},
             ],
             model="gpt-4o-mini",
-            temperature=0.3,
+            temperature=0.4,
         )
         if "error" in result and "content" not in result:
             raise ValueError(result["error"])
@@ -495,23 +643,44 @@ async def substitute_ingredient(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    raw_options = data.get("options") or []
+    options: list[SubstitutionOption] = []
+    for opt in raw_options:
+        if not isinstance(opt, dict):
+            continue
+        sub = (opt.get("substitute") or "").strip()
+        if not sub:
+            continue
+        options.append(SubstitutionOption(
+            substitute=sub,
+            tag=str(opt.get("tag") or "alternative").strip().lower(),
+            reasoning=str(opt.get("reasoning") or ""),
+        ))
+
+    # Back-compat: pick the first option as the "primary" substitute
+    primary_sub = options[0].substitute if options else (data.get("substitute") or "")
+    primary_reason = options[0].reasoning if options else (data.get("reasoning") or "")
+
     return SubstitutionResponse(
         original=data.get("original", req.ingredient_item),
-        substitute=data.get("substitute", ""),
-        reasoning=data.get("reasoning", ""),
+        substitute=primary_sub,
+        reasoning=primary_reason,
+        options=options,
     )
 
 
 @router.post("/{recipe_id}/nutrition", response_model=NutritionResponse)
 async def get_nutrition(
     recipe_id: int,
+    req: RecipeAnalysisRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
 
-    recipe_text = _recipe_to_text(recipe)
+    o_ings, o_insts, o_serv = _resolve_override(req)
+    recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_nutrition():
         result = chat_completion(
@@ -533,7 +702,7 @@ async def get_nutrition(
 
     per_serving = data.get("per_serving", data)
     return NutritionResponse(
-        servings=data.get("servings", recipe.servings or 1),
+        servings=data.get("servings", o_serv or recipe.servings or 1),
         per_serving=NutritionPerServing(**per_serving),
     )
 
@@ -543,6 +712,7 @@ async def get_nutrition(
 @router.post("/{recipe_id}/cost", response_model=CostResponse)
 async def estimate_cost(
     recipe_id: int,
+    req: RecipeAnalysisRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -550,7 +720,8 @@ async def estimate_cost(
     _assert_ownership(recipe, current_user.id)
 
     currency = current_user.currency or "GBP"
-    recipe_text = _recipe_to_text(recipe)
+    o_ings, o_insts, o_serv = _resolve_override(req)
+    recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_cost():
         result = chat_completion(
@@ -583,13 +754,15 @@ async def estimate_cost(
 @router.post("/{recipe_id}/impact", response_model=ImpactResponse)
 async def estimate_impact(
     recipe_id: int,
+    req: RecipeAnalysisRequest | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
 
-    recipe_text = _recipe_to_text(recipe)
+    o_ings, o_insts, o_serv = _resolve_override(req)
+    recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_impact():
         result = chat_completion(

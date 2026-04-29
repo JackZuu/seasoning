@@ -16,6 +16,18 @@ export interface InstructionStep {
   technique_tags: string[];
 }
 
+export interface AppliedSeasoning {
+  key: string;
+  label: string;
+  reasoning: Record<string, string>;
+}
+
+export interface WorkingState {
+  ingredients: Ingredient[];
+  instructions: InstructionStep[];
+  applied_seasonings: AppliedSeasoning[];
+}
+
 export interface Recipe {
   id: number;
   user_id: number;
@@ -25,6 +37,7 @@ export interface Recipe {
   instructions: InstructionStep[];
   image_url: string | null;
   notes: string;
+  working_state: WorkingState | null;
   created_at: string;
 }
 
@@ -43,10 +56,17 @@ export interface TransformResponse {
   reasoning: Record<string, string>;
 }
 
+export interface SubstitutionOption {
+  substitute: string;
+  tag: string;
+  reasoning: string;
+}
+
 export interface SubstitutionResponse {
   original: string;
   substitute: string;
   reasoning: string;
+  options: SubstitutionOption[];
 }
 
 export interface NutritionPerServing {
@@ -198,11 +218,17 @@ export async function convertRecipe(
 export async function transformRecipe(
   id: number,
   transformation: string,
-  dietaryRequirements: string[] = []
+  dietaryRequirements: string[] = [],
+  base?: { ingredients: Ingredient[]; instructions: InstructionStep[] }
 ): Promise<TransformResponse> {
+  const body: any = { transformation, dietary_requirements: dietaryRequirements };
+  if (base) {
+    body.base_ingredients = base.ingredients;
+    body.base_instructions = base.instructions;
+  }
   const res = await apiFetch(`/api/recipes/${id}/transform`, {
     method: "POST",
-    body: JSON.stringify({ transformation, dietary_requirements: dietaryRequirements }),
+    body: JSON.stringify(body),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Transformation failed");
@@ -213,44 +239,82 @@ export async function substituteIngredient(
   id: number,
   ingredientItem: string,
   recipeTitle: string,
-  dietaryRequirements: string[] = []
+  dietaryRequirements: string[] = [],
+  customConstraint?: string,
+  baseIngredients?: Ingredient[]
 ): Promise<SubstitutionResponse> {
+  const body: any = {
+    ingredient_item: ingredientItem,
+    recipe_title: recipeTitle,
+    dietary_requirements: dietaryRequirements,
+  };
+  if (customConstraint) body.custom_constraint = customConstraint;
+  if (baseIngredients) body.base_ingredients = baseIngredients;
   const res = await apiFetch(`/api/recipes/${id}/substitute`, {
     method: "POST",
-    body: JSON.stringify({
-      ingredient_item: ingredientItem,
-      recipe_title: recipeTitle,
-      dietary_requirements: dietaryRequirements,
-    }),
+    body: JSON.stringify(body),
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Substitution failed");
   return data;
 }
 
-export async function getNutrition(id: number): Promise<NutritionResponse> {
+export interface AnalysisOverride {
+  ingredients?: Ingredient[];
+  instructions?: InstructionStep[];
+  servings?: number;
+}
+
+export async function getNutrition(id: number, override?: AnalysisOverride): Promise<NutritionResponse> {
   const res = await apiFetch(`/api/recipes/${id}/nutrition`, {
     method: "POST",
+    body: override ? JSON.stringify(override) : undefined,
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not get nutrition info");
   return data;
 }
 
-export async function estimateCost(id: number): Promise<CostResponse> {
+export async function estimateCost(id: number, override?: AnalysisOverride): Promise<CostResponse> {
   const res = await apiFetch(`/api/recipes/${id}/cost`, {
     method: "POST",
+    body: override ? JSON.stringify(override) : undefined,
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not estimate cost");
   return data;
 }
 
-export async function estimateImpact(id: number): Promise<ImpactResponse> {
+export async function estimateImpact(id: number, override?: AnalysisOverride): Promise<ImpactResponse> {
   const res = await apiFetch(`/api/recipes/${id}/impact`, {
     method: "POST",
+    body: override ? JSON.stringify(override) : undefined,
   });
   const data = await safeJson(res);
   if (!res.ok) throw new Error(data.detail || "Could not estimate impact");
+  return data;
+}
+
+// ─── Working state (transformations / swaps / edits persistence) ────────────
+
+export async function putWorkingState(
+  id: number,
+  state: WorkingState
+): Promise<Recipe> {
+  const res = await apiFetch(`/api/recipes/${id}/working-state`, {
+    method: "PUT",
+    body: JSON.stringify(state),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Failed to save working state");
+  return data;
+}
+
+export async function clearWorkingState(id: number): Promise<Recipe> {
+  const res = await apiFetch(`/api/recipes/${id}/working-state`, {
+    method: "DELETE",
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data.detail || "Failed to clear working state");
   return data;
 }
