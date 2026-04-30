@@ -16,6 +16,8 @@ from app.routers.friends_router import router as friends_router
 from app.routers.shopping_router import router as shopping_router
 from app.routers.ingredients_router import router as ingredients_router
 from app.services.ingredient_seeder import seed_ingredients
+from app.services.ingredient_backfill import backfill_all_recipes
+import asyncio
 
 # ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -29,6 +31,23 @@ print(f"SECRET_KEY found:     {bool(os.getenv('SECRET_KEY'))}")
 
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
+async def _background_backfill():
+    """Resolve ingredient_id on any recipes that pre-date the taxonomy.
+    Runs in the background so it doesn't block the app from accepting
+    requests. Idempotent: skips ingredients that already have an id.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await backfill_all_recipes(db, allow_llm=True)
+            if result["recipes_changed"]:
+                print(
+                    f"Ingredient backfill: stamped {result['ingredients_resolved']} "
+                    f"ingredients across {result['recipes_changed']} recipes."
+                )
+        except Exception as e:
+            print(f"Background ingredient backfill failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
@@ -37,6 +56,8 @@ async def lifespan(app: FastAPI):
             await seed_ingredients(db)
         except Exception as e:
             print(f"Ingredient seeding skipped: {e}")
+    # Fire and forget — we don't await this so startup completes immediately.
+    asyncio.create_task(_background_backfill())
     yield
 
 # ─── Security headers middleware ──────────────────────────────────────────────
