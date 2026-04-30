@@ -56,8 +56,9 @@ async def lifespan(app: FastAPI):
             await seed_ingredients(db)
         except Exception as e:
             print(f"Ingredient seeding skipped: {e}")
-    # Fire and forget — we don't await this so startup completes immediately.
-    asyncio.create_task(_background_backfill())
+    # Hold a reference on app.state so the GC can't collect the task
+    # mid-run (asyncio.create_task without a ref is a known footgun).
+    app.state.backfill_task = asyncio.create_task(_background_backfill())
     yield
 
 # ─── Security headers middleware ──────────────────────────────────────────────
