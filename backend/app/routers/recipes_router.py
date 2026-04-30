@@ -31,6 +31,8 @@ from app.prompts import (
 )
 from app.conversions import convert_ingredients
 from app.scraper import scrape_recipe_url
+from app.services.ingredient_resolver import resolve as resolve_ingredient
+from app.services.recipe_metrics import compute_metrics, impact_rating
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -180,6 +182,34 @@ def _assert_ownership(recipe: Recipe | None, user_id: int):
         raise HTTPException(status_code=404, detail="Recipe not found")
 
 
+async def _resolve_recipe_ingredients(
+    db: AsyncSession,
+    ingredients: list[dict],
+    allow_llm: bool = True,
+) -> list[dict]:
+    """Run the resolver on each ingredient dict, returning new dicts with
+    `ingredient_id` populated where a canonical match was found.
+    """
+    resolved: list[dict] = []
+    for ing in ingredients:
+        ing = dict(ing)
+        if ing.get("ingredient_id"):
+            resolved.append(ing)
+            continue
+        item = ing.get("item") or ""
+        if not item.strip():
+            resolved.append(ing)
+            continue
+        try:
+            canonical = await resolve_ingredient(db, item, allow_llm=allow_llm)
+            if canonical:
+                ing["ingredient_id"] = canonical.id
+        except Exception as e:
+            print(f"Resolver failed for '{item}': {e}")
+        resolved.append(ing)
+    return resolved
+
+
 async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: str | None = None) -> Recipe:
     if isinstance(data, dict) and isinstance(data.get("ingredients"), list):
         data["ingredients"] = _normalise_ingredients(data["ingredients"])
@@ -188,11 +218,14 @@ async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: st
     except (ValidationError, Exception) as e:
         raise HTTPException(status_code=422, detail=f"Recipe format invalid: {str(e)}")
 
+    raw_ings = [ing.model_dump() for ing in recipe_data.ingredients]
+    resolved_ings = await _resolve_recipe_ingredients(db, raw_ings, allow_llm=True)
+
     recipe = Recipe(
         user_id=user_id,
         title=recipe_data.title,
         servings=recipe_data.servings,
-        ingredients=[ing.model_dump() for ing in recipe_data.ingredients],
+        ingredients=resolved_ings,
         instructions=[step.model_dump() for step in recipe_data.instructions],
         image_url=image_url or recipe_data.image_url,
     )
@@ -669,6 +702,9 @@ async def substitute_ingredient(
     )
 
 
+_LOCAL_RESOLUTION_THRESHOLD = 0.7  # if 70%+ ingredients resolve locally, skip LLM
+
+
 @router.post("/{recipe_id}/nutrition", response_model=NutritionResponse)
 async def get_nutrition(
     recipe_id: int,
@@ -680,6 +716,28 @@ async def get_nutrition(
     _assert_ownership(recipe, current_user.id)
 
     o_ings, o_insts, o_serv = _resolve_override(req)
+    target_ings = o_ings if o_ings is not None else (recipe.ingredients or [])
+    target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
+
+    # Try local computation from the canonical taxonomy
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    metrics = await compute_metrics(db, local_target_ings, target_serv)
+    if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD:
+        return NutritionResponse(
+            servings=metrics.servings,
+            per_serving=NutritionPerServing(
+                calories=metrics.calories,
+                protein_g=metrics.protein_g,
+                carbs_g=metrics.carbs_g,
+                fat_g=metrics.fat_g,
+                saturated_fat_g=metrics.saturated_fat_g,
+                fiber_g=metrics.fiber_g,
+                sugar_g=metrics.sugar_g,
+                sodium_mg=metrics.sodium_mg,
+            ),
+        )
+
+    # Fall back to LLM if too many ingredients are unresolved
     recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_nutrition():
@@ -721,6 +779,19 @@ async def estimate_cost(
 
     currency = current_user.currency or "GBP"
     o_ings, o_insts, o_serv = _resolve_override(req)
+    target_ings = o_ings if o_ings is not None else (recipe.ingredients or [])
+    target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
+
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    metrics = await compute_metrics(db, local_target_ings, target_serv)
+    if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD and metrics.cost_total_gbp > 0:
+        return CostResponse(
+            total=round(metrics.cost_total_gbp, 2),
+            per_serving=round(metrics.cost_per_serving_gbp, 2),
+            currency="GBP",
+            breakdown=[],
+        )
+
     recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_cost():
@@ -762,6 +833,20 @@ async def estimate_impact(
     _assert_ownership(recipe, current_user.id)
 
     o_ings, o_insts, o_serv = _resolve_override(req)
+    target_ings = o_ings if o_ings is not None else (recipe.ingredients or [])
+    target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
+
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    metrics = await compute_metrics(db, local_target_ings, target_serv)
+    if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD and metrics.kg_co2e_total > 0:
+        return ImpactResponse(
+            kg_co2e_per_serving=round(metrics.kg_co2e_per_serving, 2),
+            kg_co2e_total=round(metrics.kg_co2e_total, 2),
+            rating=impact_rating(metrics.kg_co2e_per_serving),
+            summary="",
+            breakdown=[],
+        )
+
     recipe_text = _recipe_to_text(recipe, ingredients=o_ings, instructions=o_insts, servings=o_serv)
 
     def _do_impact():

@@ -8,12 +8,14 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 
-from app.database import init_db
+from app.database import init_db, AsyncSessionLocal
 from app.routers.auth_router import router as auth_router
 from app.routers.recipes_router import router as recipes_router
 from app.routers.larder_router import router as larder_router
 from app.routers.friends_router import router as friends_router
 from app.routers.shopping_router import router as shopping_router
+from app.routers.ingredients_router import router as ingredients_router
+from app.services.ingredient_seeder import seed_ingredients
 
 # ─── Environment ──────────────────────────────────────────────────────────────
 
@@ -30,6 +32,11 @@ print(f"SECRET_KEY found:     {bool(os.getenv('SECRET_KEY'))}")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    async with AsyncSessionLocal() as db:
+        try:
+            await seed_ingredients(db)
+        except Exception as e:
+            print(f"Ingredient seeding skipped: {e}")
     yield
 
 # ─── Security headers middleware ──────────────────────────────────────────────
@@ -69,6 +76,7 @@ app.include_router(recipes_router)
 app.include_router(larder_router)
 app.include_router(friends_router)
 app.include_router(shopping_router)
+app.include_router(ingredients_router)
 
 @app.get("/api/health")
 def health():

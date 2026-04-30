@@ -7,6 +7,7 @@ export interface Ingredient {
   item: string;
   preparation: string;
   notes: string;
+  ingredient_id?: number | null;
 }
 
 export interface InstructionStep {

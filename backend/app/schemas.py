@@ -57,6 +57,7 @@ class Ingredient(BaseModel):
     item: str
     preparation: str = ""
     notes: str = ""
+    ingredient_id: Optional[int] = None  # canonical taxonomy link, filled by resolver
 
 class InstructionStep(BaseModel):
     step: int

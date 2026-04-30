@@ -36,25 +36,24 @@ def _add_column_if_missing(conn, table_name: str, column_name: str, column_type:
 
 def _run_migrations(conn):
     """Add any new columns that don't exist yet."""
+    from sqlalchemy import text
+    is_postgres = "postgresql" in str(conn.engine.url)
+
     # Recipe columns
     _add_column_if_missing(conn, "recipes", "image_url", "TEXT")
     _add_column_if_missing(conn, "recipes", "notes", "TEXT DEFAULT ''")
-    is_postgres_recipes = "postgresql" in str(conn.engine.url)
     _add_column_if_missing(
         conn, "recipes", "working_state",
-        "JSONB" if is_postgres_recipes else "TEXT"
+        "JSONB" if is_postgres else "TEXT"
     )
     # User profile columns
     _add_column_if_missing(conn, "users", "display_name", "VARCHAR")
     _add_column_if_missing(conn, "users", "recipe_book_name", "VARCHAR DEFAULT 'Your Recipe Book'")
     _add_column_if_missing(conn, "users", "currency", "VARCHAR DEFAULT 'GBP'")
-    # Use JSONB on Postgres, TEXT on SQLite (which stores JSON as text natively)
-    is_postgres = "postgresql" in str(conn.engine.url)
     _add_column_if_missing(conn, "users", "preferences", "JSONB" if is_postgres else "TEXT")
 
     # Fix: if preferences was previously added as TEXT on Postgres, convert to JSONB
     if is_postgres:
-        from sqlalchemy import text
         try:
             conn.execute(text(
                 "ALTER TABLE users ALTER COLUMN preferences TYPE JSONB USING preferences::jsonb"
@@ -62,6 +61,17 @@ def _run_migrations(conn):
             print("  Converted users.preferences to JSONB")
         except Exception:
             pass  # Already JSONB or doesn't exist yet
+
+    # Ingredient taxonomy: enable pg_trgm and add trigram index on canonical_name
+    if is_postgres:
+        try:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ingredient_canonical_trgm "
+                "ON ingredient USING GIN (canonical_name gin_trgm_ops)"
+            ))
+        except Exception as e:
+            print(f"  Skipped pg_trgm setup: {e}")
 
 
 async def init_db():
