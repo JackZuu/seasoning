@@ -48,6 +48,7 @@ class LarderItem(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     item = Column(Text, nullable=False)
     category = Column(String, nullable=True, default="Other")
+    ingredient_id = Column(Integer, ForeignKey("ingredient.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 

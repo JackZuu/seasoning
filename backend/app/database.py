@@ -73,6 +73,9 @@ def _run_migrations(conn):
         except Exception as e:
             print(f"  Skipped pg_trgm setup: {e}")
 
+    # Larder: link to canonical ingredient
+    _add_column_if_missing(conn, "larder_items", "ingredient_id", "INTEGER")
+
 
 async def init_db():
     """Create all tables on startup if they don't exist, then run migrations."""

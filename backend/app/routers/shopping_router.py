@@ -83,12 +83,19 @@ async def add_recipe_to_basket(
     larder_result = await db.execute(
         select(LarderItem).where(LarderItem.user_id == current_user.id)
     )
-    larder_names = [li.item.lower().strip() for li in larder_result.scalars().all()]
+    larder_items = list(larder_result.scalars().all())
+    larder_names = [li.item.lower().strip() for li in larder_items]
+    larder_ids = {li.ingredient_id for li in larder_items if li.ingredient_id}
 
     added = 0
     skipped: list[str] = []
 
     for ing in req.ingredients:
+        # Canonical match first (exact taxonomy ID), then string fallback
+        ing_id = getattr(ing, "ingredient_id", None)
+        if ing_id and ing_id in larder_ids:
+            skipped.append(ing.item)
+            continue
         if larder_names and _in_larder(ing.item, larder_names):
             skipped.append(ing.item)
             continue

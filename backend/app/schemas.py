@@ -226,6 +226,7 @@ class LarderItemOut(BaseModel):
     id: int
     item: str
     category: str
+    ingredient_id: Optional[int] = None
 
 class LarderRecipeSuggestion(BaseModel):
     title: str

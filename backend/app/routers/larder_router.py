@@ -9,6 +9,7 @@ from app.schemas import LarderItemCreate, LarderItemOut, LarderRecipeSuggestions
 from app.auth import get_current_user
 from app.openai_module import chat_completion
 from app.prompts import LARDER_RECIPES_SYSTEM_PROMPT
+from app.services.ingredient_resolver import resolve as resolve_ingredient
 
 router = APIRouter(prefix="/api/larder", tags=["larder"])
 
@@ -39,7 +40,10 @@ async def list_larder(
         select(LarderItem).where(LarderItem.user_id == current_user.id).order_by(LarderItem.category, LarderItem.item)
     )
     items = result.scalars().all()
-    return [LarderItemOut(id=i.id, item=i.item, category=i.category) for i in items]
+    return [
+        LarderItemOut(id=i.id, item=i.item, category=i.category, ingredient_id=i.ingredient_id)
+        for i in items
+    ]
 
 
 @router.post("", response_model=LarderItemOut, status_code=201)
@@ -48,11 +52,25 @@ async def add_larder_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    item = LarderItem(user_id=current_user.id, item=req.item, category=req.category)
+    # Resolve to canonical taxonomy. LLM fallback fills the table on first
+    # encounter; subsequent uses hit exact match.
+    canonical = None
+    try:
+        canonical = await resolve_ingredient(db, req.item, allow_llm=True)
+    except Exception as e:
+        print(f"Larder resolver failed for '{req.item}': {e}")
+
+    display_item = canonical.canonical_name if canonical else req.item
+    item = LarderItem(
+        user_id=current_user.id,
+        item=display_item,
+        category=req.category,
+        ingredient_id=canonical.id if canonical else None,
+    )
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    return LarderItemOut(id=item.id, item=item.item, category=item.category)
+    return LarderItemOut(id=item.id, item=item.item, category=item.category, ingredient_id=item.ingredient_id)
 
 
 @router.delete("/{item_id}", status_code=204)
