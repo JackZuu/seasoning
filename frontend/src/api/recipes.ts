@@ -61,6 +61,10 @@ export interface SubstitutionOption {
   substitute: string;
   tag: string;
   reasoning: string;
+  quantity?: number | null;
+  unit?: string | null;
+  item?: string | null;
+  preparation?: string | null;
 }
 
 export interface SubstitutionResponse {

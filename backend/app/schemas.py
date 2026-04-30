@@ -159,6 +159,12 @@ class SubstitutionOption(BaseModel):
     substitute: str
     tag: str
     reasoning: str
+    # Structured fields so the swap result can land cleanly in the recipe
+    # without the resolver having to parse "200g tofu" out of free text.
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    item: Optional[str] = None
+    preparation: Optional[str] = ""
 
 class SubstitutionResponse(BaseModel):
     original: str

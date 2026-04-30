@@ -498,18 +498,20 @@ export default function RecipeDetailPage() {
     setCustomSwapText("");
   }
 
-  function applySwap(index: number, substituteText: string) {
+  function applySwap(index: number, option: { substitute: string; quantity?: number | null; unit?: string | null; item?: string | null; preparation?: string | null }) {
     if (!recipe) return;
     const before = displayIngredients[index];
+    // Prefer the structured fields from the LLM (quantity/unit/item) so the
+    // resolver can clean-match. Fall back to stuffing the display string into
+    // item if the LLM didn't return them.
     const after: Ingredient = {
       ...before,
-      // Stuff the substitute into the item field; clear quantity/unit so the
-      // suggestion's own embedded quantity/unit is what shows.
-      quantity: null,
-      unit: null,
-      item: substituteText,
-      preparation: "",
+      quantity: option.quantity ?? null,
+      unit: option.unit ?? null,
+      item: option.item || option.substitute,
+      preparation: option.preparation || "",
       notes: "",
+      ingredient_id: null,
     };
     const nextIngs = displayIngredients.map((ing, i) => i === index ? after : ing);
     const nextSwaps = { ...swaps };
@@ -1273,7 +1275,7 @@ export default function RecipeDetailPage() {
                         onCustomToggle={() => setCustomSwapMode(true)}
                         onCustomChange={setCustomSwapText}
                         onCustomSubmit={() => fetchSwapOptions(ing, customSwapText)}
-                        onApply={(text) => applySwap(i, text)}
+                        onApply={(option) => applySwap(i, option)}
                       />
                     )}
                   </li>
@@ -1357,7 +1359,7 @@ interface SwapPopoverProps {
   onCustomToggle: () => void;
   onCustomChange: (v: string) => void;
   onCustomSubmit: () => void;
-  onApply: (text: string) => void;
+  onApply: (option: { substitute: string; quantity?: number | null; unit?: string | null; item?: string | null; preparation?: string | null }) => void;
 }
 
 function SwapPopover({
@@ -1384,7 +1386,7 @@ function SwapPopover({
             {data.options.map((opt, i) => (
               <Tooltip key={i} label={opt.reasoning || opt.tag} placement="top">
                 <button
-                  onClick={() => onApply(opt.substitute)}
+                  onClick={() => onApply(opt)}
                   style={{
                     width: "100%", padding: "10px 12px", borderRadius: 8,
                     border: `1px solid ${colors.borderSoft}`, background: colors.white,

@@ -145,12 +145,22 @@ def _try_parse_qty(token: str) -> float | None:
         return None
 
 
+# Common units recognised when squashed against the number ("200g", "1tsp")
+_KNOWN_UNITS = {"g", "kg", "ml", "l", "tsp", "tbsp", "cup", "cups", "oz", "lb", "lbs"}
+
+
 def _normalise_ingredients(ings: list[dict]) -> list[dict]:
-    """If quantity is null but item starts with a number/fraction, lift it out."""
+    """If quantity is null but item starts with a number/fraction, lift it out.
+
+    Also handles unit stuck to the number (e.g. "200g flour" -> qty=200, unit=g, item=flour).
+    """
     pattern = re.compile(
         rf"^\s*((?:\d+\s+\d+\s*/\s*\d+)|(?:\d+\s*/\s*\d+)|(?:\d+\s+[{''.join(_UNICODE_FRAC.keys())}])|"
         rf"[{''.join(_UNICODE_FRAC.keys())}]|\d+(?:\.\d+)?)\s*(.*)$"
     )
+    # Squashed "200g flour" — number directly followed by a unit
+    squashed = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)\s+(.+)$")
+
     out = []
     for ing in ings:
         if not isinstance(ing, dict):
@@ -165,6 +175,20 @@ def _normalise_ingredients(ings: list[dict]) -> list[dict]:
         # If quantity is still missing, try the item field
         if q is None:
             item = ing.get("item") or ""
+            # Try squashed-unit pattern first ("200g tofu cubes")
+            sm = squashed.match(item)
+            if sm and sm.group(2).lower() in _KNOWN_UNITS:
+                try:
+                    qty_val = float(sm.group(1))
+                except ValueError:
+                    qty_val = None
+                if qty_val is not None:
+                    ing["quantity"] = qty_val
+                    if not ing.get("unit"):
+                        ing["unit"] = sm.group(2).lower()
+                    ing["item"] = sm.group(3).strip()
+                    out.append(ing)
+                    continue
             m = pattern.match(item)
             if m:
                 parsed = _try_parse_qty(m.group(1))
@@ -473,6 +497,8 @@ async def put_working_state(
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
     raw_ings = [i.model_dump() for i in req.ingredients]
+    # Lift any squashed "200g foo" or leading-number stragglers before resolving
+    raw_ings = _normalise_ingredients(raw_ings)
     # Resolve with LLM fallback so manual edits / swaps that introduce a
     # new ingredient grow the taxonomy. Cost is one-call-per-new-ingredient
     # system-wide; the next time anyone uses it, exact match hits.
@@ -689,10 +715,24 @@ async def substitute_ingredient(
         sub = (opt.get("substitute") or "").strip()
         if not sub:
             continue
+        # Coerce quantity to float if the LLM returned a string like "1/2"
+        raw_qty = opt.get("quantity")
+        qty: float | None = None
+        if isinstance(raw_qty, (int, float)):
+            qty = float(raw_qty)
+        elif isinstance(raw_qty, str) and raw_qty.strip():
+            try:
+                qty = float(raw_qty)
+            except ValueError:
+                qty = None
         options.append(SubstitutionOption(
             substitute=sub,
             tag=str(opt.get("tag") or "alternative").strip().lower(),
             reasoning=str(opt.get("reasoning") or ""),
+            quantity=qty,
+            unit=(opt.get("unit") or None),
+            item=(opt.get("item") or None),
+            preparation=(opt.get("preparation") or ""),
         ))
 
     # Back-compat: pick the first option as the "primary" substitute
@@ -707,7 +747,7 @@ async def substitute_ingredient(
     )
 
 
-_LOCAL_RESOLUTION_THRESHOLD = 0.7  # if 70%+ ingredients resolve locally, skip LLM
+_LOCAL_RESOLUTION_THRESHOLD = 0.5  # if half+ resolve locally, prefer local over LLM
 
 
 @router.post("/{recipe_id}/nutrition", response_model=NutritionResponse)
@@ -725,7 +765,7 @@ async def get_nutrition(
     target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
 
     # Try local computation from the canonical taxonomy
-    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=True)
     metrics = await compute_metrics(db, local_target_ings, target_serv)
     if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD:
         return NutritionResponse(
@@ -787,7 +827,7 @@ async def estimate_cost(
     target_ings = o_ings if o_ings is not None else (recipe.ingredients or [])
     target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
 
-    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=True)
     metrics = await compute_metrics(db, local_target_ings, target_serv)
     if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD and metrics.cost_total_gbp > 0:
         return CostResponse(
@@ -841,7 +881,7 @@ async def estimate_impact(
     target_ings = o_ings if o_ings is not None else (recipe.ingredients or [])
     target_serv = o_serv if o_serv is not None else (recipe.servings or 1)
 
-    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=False)
+    local_target_ings = await _resolve_recipe_ingredients(db, list(target_ings), allow_llm=True)
     metrics = await compute_metrics(db, local_target_ings, target_serv)
     if metrics.resolution_rate >= _LOCAL_RESOLUTION_THRESHOLD and metrics.kg_co2e_total > 0:
         return ImpactResponse(
