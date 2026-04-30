@@ -234,9 +234,57 @@ async def _resolve_recipe_ingredients(
     return resolved
 
 
+def _estimate_servings_from_ingredients(ingredients: list[dict]) -> int:
+    """Cheap, deterministic servings estimate based on staple quantities.
+
+    Used only when the LLM fails to return a servings count. Looks at common
+    staples (pasta, rice, meat, eggs, flour) and infers a sensible default.
+    Falls back to 4 if nothing matches.
+    """
+    if not ingredients:
+        return 4
+    # Map of (item-substrings, weight-grams-per-serving) for staples
+    staple_grams = [
+        (("pasta", "spaghetti", "penne", "fusilli", "rigatoni", "tagliatelle", "linguine", "noodle"), 100),
+        (("rice", "quinoa", "couscous"), 75),
+        (("flour",), 80),
+    ]
+    meat_grams = (("chicken", "beef", "pork", "lamb", "salmon", "cod", "tuna", "prawn", "tofu", "halloumi"), 150)
+
+    for ing in ingredients:
+        item = (ing.get("item") or "").lower()
+        qty = ing.get("quantity")
+        unit = (ing.get("unit") or "").lower()
+        if not isinstance(qty, (int, float)) or qty <= 0:
+            continue
+        # Convert to grams roughly
+        grams = None
+        if unit == "g":
+            grams = qty
+        elif unit == "kg":
+            grams = qty * 1000
+        elif not unit:
+            # Discrete count, only useful for eggs
+            if "egg" in item:
+                return max(2, int(qty // 2))
+            continue
+        if grams is None:
+            continue
+        for keys, per_serving in staple_grams:
+            if any(k in item for k in keys):
+                return max(1, round(grams / per_serving))
+        keys, per_serving = meat_grams
+        if any(k in item for k in keys):
+            return max(1, round(grams / per_serving))
+    return 4
+
+
 async def _save_recipe(data: dict, user_id: int, db: AsyncSession, image_url: str | None = None) -> Recipe:
     if isinstance(data, dict) and isinstance(data.get("ingredients"), list):
         data["ingredients"] = _normalise_ingredients(data["ingredients"])
+    # Fallback servings if the LLM left it null
+    if data.get("servings") in (None, 0):
+        data["servings"] = _estimate_servings_from_ingredients(data.get("ingredients") or [])
     try:
         recipe_data = RecipeCreate(**data)
     except (ValidationError, Exception) as e:
@@ -601,6 +649,16 @@ async def transform_recipe(
             parts.append("Make it budget-friendly")
         elif prefs.get("budget") == "luxurious":
             parts.append("Use premium ingredients")
+        favs = prefs.get("favourite_ingredients") or []
+        avoids = prefs.get("avoided_ingredients") or []
+        if favs:
+            parts.append(
+                f"Where it fits the dish, prefer these favourites: {', '.join(favs)}"
+            )
+        if avoids:
+            parts.append(
+                f"Swap these out where you can (soft preference, not a hard restriction): {', '.join(avoids)}"
+            )
         dietary_reqs.extend(prefs.get("dietary_requirements", []))
         transformation = " + ".join(parts) if parts else "seasonal"
 

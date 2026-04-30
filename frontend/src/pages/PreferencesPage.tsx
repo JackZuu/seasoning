@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Header from "../components/Header";
+import IngredientAutocomplete from "../components/IngredientAutocomplete";
 import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { updateProfile } from "../api/profile";
@@ -32,6 +33,10 @@ export default function PreferencesPage() {
   const [eco, setEco] = useState<boolean>(prefs.eco || false);
   const [budget, setBudget] = useState<string>(prefs.budget || "moderate");
   const [dietaryReqs, setDietaryReqs] = useState<string[]>(prefs.dietary_requirements || []);
+  const [favourites, setFavourites] = useState<string[]>(prefs.favourite_ingredients || []);
+  const [avoided, setAvoided] = useState<string[]>(prefs.avoided_ingredients || []);
+  const [favInput, setFavInput] = useState("");
+  const [avoidInput, setAvoidInput] = useState("");
   const [currency, setCurrency] = useState(user?.currency || "GBP");
   const [saved, setSaved] = useState(true);
 
@@ -40,8 +45,40 @@ export default function PreferencesPage() {
     setSaved(false);
   }
 
+  function addFavourite() {
+    const v = favInput.trim().toLowerCase();
+    if (!v || favourites.includes(v)) return;
+    setFavourites(prev => [...prev, v]);
+    setFavInput("");
+    setSaved(false);
+  }
+
+  function addAvoided() {
+    const v = avoidInput.trim().toLowerCase();
+    if (!v || avoided.includes(v)) return;
+    setAvoided(prev => [...prev, v]);
+    setAvoidInput("");
+    setSaved(false);
+  }
+
+  function removeFavourite(item: string) {
+    setFavourites(prev => prev.filter(f => f !== item));
+    setSaved(false);
+  }
+
+  function removeAvoided(item: string) {
+    setAvoided(prev => prev.filter(a => a !== item));
+    setSaved(false);
+  }
+
   async function handleSave() {
-    const preferences = { diet: diet === "none" ? null : diet, seasonal, eco, budget, dietary_requirements: dietaryReqs };
+    const preferences = {
+      diet: diet === "none" ? null : diet,
+      seasonal, eco, budget,
+      dietary_requirements: dietaryReqs,
+      favourite_ingredients: favourites,
+      avoided_ingredients: avoided,
+    };
     try {
       const updated = await updateProfile({ preferences, currency });
       updateUser(updated);
@@ -130,6 +167,86 @@ export default function PreferencesPage() {
                   {opt}
                 </label>
               ))}
+            </div>
+          </section>
+
+          {/* Favourite ingredients */}
+          <section style={{ background: colors.white, borderRadius: 10, border: `1px solid ${colors.border}`, padding: "16px 20px" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>Favourite ingredients</h3>
+            <p style={{ color: colors.muted, fontSize: 12, marginBottom: 12 }}>
+              When you click Personalise, we'll prefer these where they fit.
+            </p>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <IngredientAutocomplete
+                value={favInput}
+                onChange={setFavInput}
+                onSubmit={addFavourite}
+                placeholder="Add a favourite (e.g. chickpeas)"
+                inputStyle={{ minWidth: 200 }}
+              />
+              <button onClick={addFavourite} style={{
+                background: colors.green, color: colors.white, border: "none",
+                borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600,
+                cursor: "pointer",
+              }}>Add</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {favourites.map(f => (
+                <span key={f} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: colors.greenLight, borderRadius: 20, padding: "5px 12px",
+                  fontSize: 13, color: colors.text,
+                }}>
+                  {f}
+                  <button onClick={() => removeFavourite(f)} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: colors.muted, fontSize: 14, padding: 0, lineHeight: 1,
+                  }}>×</button>
+                </span>
+              ))}
+              {favourites.length === 0 && (
+                <span style={{ color: colors.muted, fontSize: 12 }}>No favourites yet.</span>
+              )}
+            </div>
+          </section>
+
+          {/* Avoided ingredients */}
+          <section style={{ background: colors.white, borderRadius: 10, border: `1px solid ${colors.border}`, padding: "16px 20px" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: colors.text, marginBottom: 4 }}>Ingredients to avoid</h3>
+            <p style={{ color: colors.muted, fontSize: 12, marginBottom: 12 }}>
+              Personalise will swap these out where it can. Use Dietary needs above for hard restrictions.
+            </p>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              <IngredientAutocomplete
+                value={avoidInput}
+                onChange={setAvoidInput}
+                onSubmit={addAvoided}
+                placeholder="Add an ingredient to avoid (e.g. coriander)"
+                inputStyle={{ minWidth: 200 }}
+              />
+              <button onClick={addAvoided} style={{
+                background: colors.green, color: colors.white, border: "none",
+                borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600,
+                cursor: "pointer",
+              }}>Add</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {avoided.map(a => (
+                <span key={a} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: colors.errorBg, borderRadius: 20, padding: "5px 12px",
+                  fontSize: 13, color: colors.text,
+                }}>
+                  {a}
+                  <button onClick={() => removeAvoided(a)} style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: colors.muted, fontSize: 14, padding: 0, lineHeight: 1,
+                  }}>×</button>
+                </span>
+              ))}
+              {avoided.length === 0 && (
+                <span style={{ color: colors.muted, fontSize: 12 }}>None set.</span>
+              )}
             </div>
           </section>
 

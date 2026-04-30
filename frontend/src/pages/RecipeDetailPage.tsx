@@ -435,10 +435,14 @@ export default function RecipeDetailPage() {
       setAppliedSeasonings(next);
       setSwaps({}); // ingredient slots have changed; per-slot swaps no longer apply
       setOpenPopover(null);
-      await persistWorkingState(data.ingredients, data.instructions, next);
+      setTransformingKey(null); // clear the spinner once results are on screen
+      // Persist in the background — resolver runs server-side and can be slow
+      // if new ingredients need LLM classification. User shouldn't wait.
+      persistWorkingState(data.ingredients, data.instructions, next).catch(e =>
+        console.error("Persist working state failed:", e)
+      );
     } catch (e: any) {
       alert("Transformation failed: " + e.message);
-    } finally {
       setTransformingKey(null);
     }
   }
