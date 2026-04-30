@@ -5,6 +5,7 @@ import LoadingSpinner from "../components/LoadingSpinner";
 import SaltShakerLogo from "../components/SaltShakerLogo";
 import Tooltip from "../components/Tooltip";
 import Popover from "../components/Popover";
+import IngredientAutocomplete from "../components/IngredientAutocomplete";
 import {
   ServingsIcon, UnitsIcon, NutritionIcon, CostIcon, ImpactIcon, BasketIcon,
   ChevronIcon, CloseIcon, MinusIcon, PlusIcon,
@@ -126,18 +127,15 @@ function IngredientRow({
       <span style={{ flex: 1 }}>
         {isEditing ? (
           <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <input
+            <IngredientAutocomplete
               autoFocus
               value={editText}
-              onChange={e => onEditTextChange(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") onSaveEdit();
-                if (e.key === "Escape") onCancelEdit();
-              }}
+              onChange={onEditTextChange}
+              onSubmit={onSaveEdit}
               placeholder="e.g. 200g chicken thighs"
-              style={{
-                flex: 1, padding: "6px 10px", border: `1px solid ${colors.green}`,
-                borderRadius: 6, fontSize: 14, fontFamily: fonts.sans, outline: "none",
+              inputStyle={{
+                padding: "6px 10px", border: `1px solid ${colors.green}`,
+                borderRadius: 6, fontSize: 14,
               }}
             />
             <button onClick={onSaveEdit}

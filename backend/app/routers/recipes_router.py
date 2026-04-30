@@ -472,8 +472,12 @@ async def put_working_state(
     """Persist the recipe's transformed/edited 'working' state."""
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
+    raw_ings = [i.model_dump() for i in req.ingredients]
+    # Cheap resolution only (exact + fuzzy). LLM stays gated to the parse
+    # path so manual edits don't burn tokens unexpectedly.
+    resolved_ings = await _resolve_recipe_ingredients(db, raw_ings, allow_llm=False)
     recipe.working_state = {
-        "ingredients": [i.model_dump() for i in req.ingredients],
+        "ingredients": resolved_ings,
         "instructions": [s.model_dump() for s in req.instructions],
         "applied_seasonings": [a.model_dump() for a in req.applied_seasonings],
     }

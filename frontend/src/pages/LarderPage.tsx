@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 import LoadingSpinner from "../components/LoadingSpinner";
+import IngredientAutocomplete from "../components/IngredientAutocomplete";
 import { colors } from "../theme";
 import { listLarder, addLarderItem, removeLarderItem, generateRecipesFromLarder, LarderItem, LarderRecipeSuggestion } from "../api/larder";
 import { generateRecipe } from "../api/recipes";
@@ -22,8 +23,8 @@ export default function LarderPage() {
     listLarder().then(setItems).finally(() => setLoading(false));
   }, []);
 
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleAdd(e?: React.FormEvent) {
+    e?.preventDefault();
     if (!newItem.trim()) return;
     const item = await addLarderItem(newItem.trim(), newCategory);
     setItems(prev => [...prev, item]);
@@ -79,15 +80,12 @@ export default function LarderPage() {
 
         {/* Add item form */}
         <form onSubmit={handleAdd} style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
-          <input
+          <IngredientAutocomplete
             value={newItem}
-            onChange={e => setNewItem(e.target.value)}
+            onChange={setNewItem}
+            onSubmit={() => handleAdd()}
             placeholder="Add an ingredient..."
-            style={{
-              flex: 1, minWidth: 200, padding: "10px 14px",
-              border: `1px solid ${colors.border}`, borderRadius: 8,
-              fontSize: 14, fontFamily: "system-ui, sans-serif", outline: "none", color: colors.text,
-            }}
+            inputStyle={{ minWidth: 200 }}
           />
           <select
             value={newCategory}
