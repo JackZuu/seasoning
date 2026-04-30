@@ -2,7 +2,7 @@ import asyncio
 import base64
 import json
 import re
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import ValidationError
@@ -534,23 +534,52 @@ async def update_notes(
     return _orm_to_response(recipe)
 
 
+async def _resolve_working_state_background(recipe_id: int, user_id: int):
+    """Open a fresh DB session and fill in ingredient_id values for the
+    recipe's working_state. Runs after the PUT response is sent so the
+    user-facing save is fast.
+    """
+    from app.database import AsyncSessionLocal
+    try:
+        async with AsyncSessionLocal() as db:
+            recipe = await db.get(Recipe, recipe_id)
+            if not recipe or recipe.user_id != user_id or not recipe.working_state:
+                return
+            ws = dict(recipe.working_state)
+            ings = list(ws.get("ingredients") or [])
+            if not any(not (ing.get("ingredient_id")) for ing in ings if isinstance(ing, dict)):
+                return  # already fully resolved
+            resolved = await _resolve_recipe_ingredients(db, ings, allow_llm=True)
+            ws["ingredients"] = resolved
+            recipe.working_state = ws
+            await db.commit()
+    except Exception as e:
+        print(f"Background working-state resolve failed for recipe {recipe_id}: {e}")
+
+
 @router.put("/{recipe_id}/working-state", response_model=RecipeResponse)
 async def put_working_state(
     recipe_id: int,
     req: WorkingStatePut,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Persist the recipe's transformed/edited 'working' state."""
+    """Persist the recipe's transformed/edited 'working' state.
+
+    Saves the state immediately (DB write only) and schedules ingredient
+    resolution to run after the response is sent. Keeps the user-facing
+    PUT under ~100ms even when the resolver would otherwise need to call
+    the LLM for several new ingredients.
+    """
     recipe = await db.get(Recipe, recipe_id)
     _assert_ownership(recipe, current_user.id)
     raw_ings = [i.model_dump() for i in req.ingredients]
-    # Lift any squashed "200g foo" or leading-number stragglers before resolving
     raw_ings = _normalise_ingredients(raw_ings)
-    # Resolve with LLM fallback so manual edits / swaps that introduce a
-    # new ingredient grow the taxonomy. Cost is one-call-per-new-ingredient
-    # system-wide; the next time anyone uses it, exact match hits.
-    resolved_ings = await _resolve_recipe_ingredients(db, raw_ings, allow_llm=True)
+    # Cheap exact/fuzzy resolution only — these don't call the LLM, so they
+    # finish in milliseconds. Anything unresolved gets handled by the
+    # background task.
+    resolved_ings = await _resolve_recipe_ingredients(db, raw_ings, allow_llm=False)
     recipe.working_state = {
         "ingredients": resolved_ings,
         "instructions": [s.model_dump() for s in req.instructions],
@@ -558,6 +587,8 @@ async def put_working_state(
     }
     await db.commit()
     await db.refresh(recipe)
+    # Background fill-in for any ingredient_id values still null
+    background_tasks.add_task(_resolve_working_state_background, recipe.id, current_user.id)
     return _orm_to_response(recipe)
 
 
